@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -79,6 +80,39 @@ def pid_alive(pid: int | None) -> bool:
         return False
     except PermissionError:
         return True
+    return True
+
+
+def generate_command(config: NewspaperConfig) -> list[str]:
+    cmd = [sys.executable, "-m", "newspaper"]
+    if config.path:
+        cmd += ["--config", str(config.path.resolve())]
+    return [*cmd, "generate"]
+
+
+def maybe_spawn_generate(config: NewspaperConfig, now: datetime | None = None) -> bool:
+    """Recovery when a reader opens: start today's edition in the background if it is due,
+    missing and nobody is working on it. A failed edition is not retried automatically."""
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo(config.general.timezone))
+    if local.hour < config.general.edition_hour or not config.active_feeds:
+        return False
+    with Session(open_db(config)) as s:
+        today = queries.today_edition(s, local.date())
+        if today is not None and not (
+            today.status == EditionStatus.generating and not pid_alive(today.pid)
+        ):
+            return False
+    if sys.platform == "win32":
+        flags = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        flags = {"start_new_session": True}
+    subprocess.Popen(
+        generate_command(config),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **flags,
+    )
     return True
 
 

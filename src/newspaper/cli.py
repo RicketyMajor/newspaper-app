@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 from sqlalchemy.orm import Session
 
+from . import schedule
 from .config.loader import (
     EXAMPLE_CONFIG,
     append_feed,
@@ -22,7 +23,7 @@ from .config.loader import (
 )
 from .config.models import FeedConfig, NewspaperConfig
 from .edition.generate import generate as run_generate
-from .edition.generate import local_today
+from .edition.generate import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
 
@@ -77,7 +78,9 @@ def read(ctx: click.Context) -> None:
     """Abre el lector de terminal."""
     from .tui.app import NewspaperApp
 
-    NewspaperApp(_load(ctx)).run()
+    config = _load(ctx)
+    _recover(config)
+    NewspaperApp(config).run()
 
 
 @main.command()
@@ -88,7 +91,47 @@ def web(ctx: click.Context, port: int, no_browser: bool) -> None:
     """Abre el lector web local en el navegador."""
     from .web.app import serve
 
-    serve(_load(ctx), port=port, open_browser=not no_browser)
+    config = _load(ctx)
+    _recover(config)
+    serve(config, port=port, open_browser=not no_browser)
+
+
+def _recover(config: NewspaperConfig) -> None:
+    if maybe_spawn_generate(config):
+        console.print("Preparando la edición de hoy en segundo plano…")
+
+
+@main.group(name="schedule")
+def schedule_group() -> None:
+    """Programa la edición diaria en el Programador de tareas de Windows."""
+
+
+def _powershell(script: str) -> None:
+    if schedule.sys.platform != "win32":
+        raise click.ClickException("La programación automática solo está soportada en Windows.")
+    result = schedule.run_powershell(script)
+    if result.returncode:
+        raise click.ClickException(result.stderr.strip() or "PowerShell devolvió un error.")
+
+
+@schedule_group.command()
+@click.pass_context
+def install(ctx: click.Context) -> None:
+    """Crea (o actualiza) la tarea diaria."""
+    config = _load(ctx)
+    _powershell(schedule.install_script(config))
+    hour = config.general.edition_hour
+    console.print(
+        f"Tarea '{schedule.TASK_NAME}' lista: cada día a las {hour:02d}:00, "
+        "o en cuanto enciendas el equipo si estaba apagado."
+    )
+
+
+@schedule_group.command()
+def uninstall() -> None:
+    """Elimina la tarea diaria."""
+    _powershell(schedule.uninstall_script())
+    console.print(f"Tarea '{schedule.TASK_NAME}' eliminada.")
 
 
 @main.command(name="add-feed")
