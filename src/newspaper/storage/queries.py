@@ -1,243 +1,141 @@
-"""Common database queries for the Newspaper application.
-
-All query functions take an AsyncSession and return model instances or sequences.
-"""
+"""Read-side queries and reading-state changes shared by the TUI and the web app."""
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session, selectinload
 
-from .models import Article, Cluster, Edition, EditionStatus, Section, UserState
+from .models import Article, Edition, EditionStatus, Note
+
+Kind = Literal["note", "article"]
+Flag = Literal["read", "favorite", "saved"]
+
+_MODELS: dict[str, type[Note] | type[Article]] = {"note": Note, "article": Article}
+_FLAGS = {"read": "is_read", "favorite": "is_favorite", "saved": "is_saved"}
 
 
-async def get_latest_edition(session: AsyncSession) -> Edition | None:
-    """Get the most recent ready edition.
+@dataclass(frozen=True)
+class SearchHit:
+    kind: Kind
+    id: int
+    title: str
+    snippet: str
 
-    Args:
-        session: An async database session.
 
-    Returns:
-        The latest Edition with status 'ready', or None if no editions exist.
-    """
+def latest_ready_edition(s: Session) -> Edition | None:
     stmt = (
         select(Edition)
         .where(Edition.status == EditionStatus.ready)
         .order_by(Edition.edition_date.desc())
-        .limit(1)
     )
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+    return s.scalars(stmt.limit(1)).first()
 
 
-async def get_edition_by_date(session: AsyncSession, target_date: date) -> Edition | None:
-    """Get an edition for a specific date.
-
-    Args:
-        session: An async database session.
-        target_date: The date to look up.
-
-    Returns:
-        The Edition for that date, or None.
-    """
-    stmt = select(Edition).where(Edition.edition_date == target_date)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+def ready_edition(s: Session, day: date) -> Edition | None:
+    stmt = select(Edition).where(Edition.edition_date == day, Edition.status == EditionStatus.ready)
+    return s.scalars(stmt).first()
 
 
-async def get_sections(session: AsyncSession) -> list[Section]:
-    """Get all sections ordered by display_order.
-
-    Args:
-        session: An async database session.
-
-    Returns:
-        List of all sections.
-    """
-    stmt = select(Section).order_by(Section.display_order)
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+def today_edition(s: Session, day: date) -> Edition | None:
+    """The edition row for `day` in any status (to show generation progress)."""
+    return s.scalars(select(Edition).where(Edition.edition_date == day)).first()
 
 
-async def get_clusters_by_section(
-    session: AsyncSession,
-    section_id: int,
-    edition_id: int,
-) -> list[Cluster]:
-    """Get all clusters in a section for a specific edition.
-
-    Args:
-        session: An async database session.
-        section_id: The section to filter by.
-        edition_id: The edition to filter by.
-
-    Returns:
-        List of clusters with their articles eagerly loaded.
-    """
+def list_editions(s: Session) -> list[Edition]:
     stmt = (
-        select(Cluster)
-        .where(Cluster.section_id == section_id, Cluster.edition_id == edition_id)
-        .options(selectinload(Cluster.articles))
+        select(Edition)
+        .where(Edition.status == EditionStatus.ready)
+        .order_by(Edition.edition_date.desc())
     )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return list(s.scalars(stmt))
 
 
-async def get_articles_by_section(
-    session: AsyncSession,
-    section_id: int,
-    edition_id: int,
-) -> list[Article]:
-    """Get all articles in a section for a given edition, via their clusters.
+def front_page(s: Session, edition_id: int) -> list[Note]:
+    stmt = select(Note).where(Note.edition_id == edition_id, Note.is_front).order_by(Note.rank)
+    return list(s.scalars(stmt.options(selectinload(Note.articles))))
 
-    Args:
-        session: An async database session.
-        section_id: The section to filter by.
-        edition_id: The edition to filter by.
 
-    Returns:
-        List of articles with user state eagerly loaded.
-    """
+def section_notes(s: Session, edition_id: int, section: str) -> list[Note]:
     stmt = (
-        select(Article)
-        .join(Cluster, Article.cluster_id == Cluster.id)
-        .where(Cluster.section_id == section_id, Cluster.edition_id == edition_id)
-        .options(selectinload(Article.user_state))
-        .order_by(Article.published_at.desc())
+        select(Note)
+        .where(Note.edition_id == edition_id, Note.section == section, ~Note.is_front)
+        .order_by(Note.rank)
     )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return list(s.scalars(stmt.options(selectinload(Note.articles))))
 
 
-async def get_article_by_id(session: AsyncSession, article_id: int) -> Article | None:
-    """Get a single article by its ID.
-
-    Args:
-        session: An async database session.
-        article_id: The article's primary key.
-
-    Returns:
-        The Article, or None.
-    """
+def section_counts(s: Session, edition_id: int) -> list[tuple[str, int]]:
+    """(section, notes outside the front page), in edition order."""
     stmt = (
-        select(Article)
-        .where(Article.id == article_id)
-        .options(
-            selectinload(Article.user_state),
-            selectinload(Article.feed),
-            selectinload(Article.cluster),
+        select(Note.section, func.count())
+        .where(Note.edition_id == edition_id, ~Note.is_front)
+        .group_by(Note.section)
+        .order_by(func.min(Note.rank))
+    )
+    return [(section, count) for section, count in s.execute(stmt)]
+
+
+def get_note(s: Session, note_id: int) -> Note | None:
+    stmt = select(Note).where(Note.id == note_id)
+    return s.scalars(stmt.options(selectinload(Note.articles), selectinload(Note.edition))).first()
+
+
+def search(s: Session, query: str, limit: int = 50) -> list[SearchHit]:
+    # Quote every word so user input can never become FTS5 syntax; trailing * = prefix match.
+    terms = re.findall(r"\w+", query)
+    if not terms:
+        return []
+    match = " ".join(f'"{t}"*' for t in terms)
+    rows = s.execute(
+        text(
+            "SELECT kind, ref_id, title, snippet(search, 3, '', '', '…', 16) FROM search "
+            "WHERE search MATCH :match ORDER BY rank LIMIT :limit"
+        ),
+        {"match": match, "limit": limit},
+    )
+    return [SearchHit(kind, int(ref_id), title, snippet) for kind, ref_id, title, snippet in rows]
+
+
+def index_for_search(s: Session, kind: Kind, ref_id: int, title: str, body: str) -> None:
+    s.execute(
+        text("INSERT INTO search (kind, ref_id, title, body) VALUES (:k, :r, :t, :b)"),
+        {"k": kind, "r": ref_id, "t": title, "b": body},
+    )
+
+
+def unindex(s: Session, kind: Kind, ref_ids: list[int]) -> None:
+    for ref_id in ref_ids:
+        s.execute(
+            text("DELETE FROM search WHERE kind = :k AND ref_id = :r"), {"k": kind, "r": ref_id}
         )
+
+
+def flagged(s: Session, flag: Flag) -> tuple[list[Note], list[Article]]:
+    """Notes and articles with `flag` set, newest first."""
+    attr = _FLAGS[flag]
+    notes = s.scalars(
+        select(Note)
+        .where(getattr(Note, attr))
+        .options(selectinload(Note.edition), selectinload(Note.articles))
+        .order_by(Note.edition_id.desc(), Note.rank)
     )
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
-
-
-async def search_articles(session: AsyncSession, query: str) -> list[Article]:
-    """Search articles by title or summary.
-
-    This is a basic LIKE search. Will be upgraded to FTS5 once the
-    virtual table is set up.
-
-    Args:
-        session: An async database session.
-        query: The search string.
-
-    Returns:
-        Matching articles ordered by relevance (published_at desc for now).
-    """
-    pattern = f"%{query}%"
-    stmt = (
-        select(Article)
-        .where(Article.title.ilike(pattern) | Article.summary.ilike(pattern))
-        .options(selectinload(Article.user_state))
-        .order_by(Article.published_at.desc())
-        .limit(50)
+    articles = s.scalars(
+        select(Article).where(getattr(Article, attr)).order_by(Article.published_at.desc())
     )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return list(notes), list(articles)
 
 
-async def update_user_state(
-    session: AsyncSession,
-    article_id: int,
-    *,
-    is_read: bool | None = None,
-    is_favorite: bool | None = None,
-    is_saved: bool | None = None,
-) -> UserState:
-    """Create or update the user interaction state for an article.
-
-    Args:
-        session: An async database session.
-        article_id: The article to update state for.
-        is_read: Set read status (None = don't change).
-        is_favorite: Set favorite status (None = don't change).
-        is_saved: Set saved status (None = don't change).
-
-    Returns:
-        The updated or created UserState.
-    """
-    stmt = select(UserState).where(UserState.article_id == article_id)
-    result = await session.execute(stmt)
-    state = result.scalar_one_or_none()
-
-    if state is None:
-        state = UserState(
-            article_id=article_id,
-            is_read=is_read if is_read is not None else False,
-            is_favorite=is_favorite if is_favorite is not None else False,
-            is_saved=is_saved if is_saved is not None else False,
-        )
-        session.add(state)
-    else:
-        if is_read is not None:
-            state.is_read = is_read
-        if is_favorite is not None:
-            state.is_favorite = is_favorite
-        if is_saved is not None:
-            state.is_saved = is_saved
-
-    return state
-
-
-async def get_user_favorites(session: AsyncSession) -> list[Article]:
-    """Get all articles marked as favorite.
-
-    Args:
-        session: An async database session.
-
-    Returns:
-        List of favorite articles.
-    """
-    stmt = (
-        select(Article)
-        .join(UserState, Article.id == UserState.article_id)
-        .where(UserState.is_favorite.is_(True))
-        .options(selectinload(Article.user_state), selectinload(Article.feed))
-        .order_by(Article.published_at.desc())
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
-
-
-async def get_saved_articles(session: AsyncSession) -> list[Article]:
-    """Get all articles saved for later.
-
-    Args:
-        session: An async database session.
-
-    Returns:
-        List of saved articles.
-    """
-    stmt = (
-        select(Article)
-        .join(UserState, Article.id == UserState.article_id)
-        .where(UserState.is_saved.is_(True))
-        .options(selectinload(Article.user_state), selectinload(Article.feed))
-        .order_by(Article.published_at.desc())
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+def set_flag(s: Session, kind: Kind, obj_id: int, flag: Flag, value: bool | None = None) -> bool:
+    """Set a reading flag, or toggle it when `value` is None. Returns the new value."""
+    obj = s.get(_MODELS[kind], obj_id)
+    if obj is None:
+        raise LookupError(f"{kind} {obj_id} not found")
+    attr = _FLAGS[flag]
+    new = (not getattr(obj, attr)) if value is None else value
+    setattr(obj, attr, new)
+    return new
