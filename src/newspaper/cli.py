@@ -22,13 +22,18 @@ from rich.table import Table
 
 from .config.loader import load_config
 
+# ponytail: redirected output on Windows may be cp1252; replace what it can't encode instead of crashing.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 console = Console()
 
 
 @click.group()
 @click.version_option(package_name="newspaper")
 def main() -> None:
-    """🗞️ Newspaper — Your personal daily news aggregator with AI curation."""
+    """Newspaper: your personal daily newspaper."""
     pass
 
 

@@ -1,0 +1,71 @@
+# =============================================================================
+# Newspaper configuration
+# =============================================================================
+# Looked up in ./newspaper.toml, then ~/.newspaper/newspaper.toml.
+# `newspaper config` creates ~/.newspaper/newspaper.toml from this file.
+
+[general]
+edition_name = "Newspaper"
+language = "es"                     # language of the written notes and the UI
+timezone = "America/Santiago"
+edition_hour = 6                    # local hour (0-23) to prepare the daily edition
+
+[llm]
+base_url = "http://localhost:11434" # Ollama
+model = "gemma3:12b"                # writes the notes
+embed_model = "bge-m3"              # multilingual embeddings for grouping
+timeout_seconds = 300
+
+[edition]
+window_hours = 36                   # how far back to look for unpublished articles
+front_page_size = 5
+max_notes_per_section = 10
+cluster_threshold = 0.80            # cosine similarity to treat two articles as the same event
+
+[storage]
+database_path = "~/.newspaper/newspaper.db"
+
+# =============================================================================
+# Feeds — sections are taken from `section`, in order of first appearance.
+# Only type = "rss" is supported for now (RSS 2.0, Atom and RDF).
+# =============================================================================
+
+[[feeds]]
+name = "CIPER"
+url = "https://www.ciperchile.cl/feed/"
+type = "rss"
+section = "Chile"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "Cooperativa"
+url = "https://www.cooperativa.cl/noticias/site/tax/port/all/rss____1.xml"
+type = "rss"
+section = "Chile"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "BBC Mundo"
+url = "https://feeds.bbci.co.uk/mundo/rss.xml"
+type = "rss"
+section = "Mundo"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "DW Español"
+url = "https://rss.dw.com/rdf/rss-sp-all"
+type = "rss"
+section = "Mundo"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "SINC — Ciencia"
+url = "https://www.agenciasinc.es/feed/Ciencia"
+type = "rss"
+section = "Ciencia"
+language = "es"
+enabled = true
