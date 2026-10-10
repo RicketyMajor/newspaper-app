@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel rdf:about="https://dw.test/">
+    <title>DW Español</title>
+    <link>https://dw.test/</link>
+    <description>Noticias</description>
+  </channel>
+  <item rdf:about="https://dw.test/cumbre">
+    <title>Cumbre climática cierra sin acuerdo</title>
+    <link>https://dw.test/cumbre</link>
+    <description>Los países no lograron un texto común.</description>
+    <dc:date>2026-10-10T09:00:00Z</dc:date>
+  </item>
+</rdf:RDF>

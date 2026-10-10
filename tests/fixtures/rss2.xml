@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>CIPER</title>
+    <link>https://ciper.test/</link>
+    <item>
+      <title>Senado aprueba reforma de pensiones</title>
+      <link>https://ciper.test/pensiones</link>
+      <description><![CDATA[<p>La votación <b>cerró</b> anoche &amp; sin sorpresas.</p>]]></description>
+      <pubDate>Sat, 10 Oct 2026 11:30:00 -0300</pubDate>
+    </item>
+    <item>
+      <title>Nueva especie hallada en Atacama</title>
+      <link>https://ciper.test/atacama</link>
+      <description>Un lagarto desconocido.</description>
+    </item>
+    <item>
+      <title></title>
+      <link>https://ciper.test/sin-titulo</link>
+    </item>
+  </channel>
+</rss>
