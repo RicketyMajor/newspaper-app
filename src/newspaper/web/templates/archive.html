@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Archivo · {{ paper }}{% endblock %}
+{% block content %}
+<h2 class="section-title page">Archivo</h2>
+<ul class="plain">
+  {% for e in editions %}
+  <li><a href="/e/{{ e.edition_date }}">{{ e.edition_date|long_date }}</a> <span class="meta">{{ e.edition_date }} · {{ e.notes|length }} notas</span></li>
+  {% else %}
+  <li>Todavía no hay ediciones.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

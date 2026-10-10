@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import outlets, tags, toggles with context %}
+{% block title %}{{ note.headline }} · {{ paper }}{% endblock %}
+{% block content %}
+<article class="note">
+  <p class="kicker"><a href="/e/{{ edition.edition_date }}/{{ note.section }}">{{ note.section }}</a></p>
+  <h1>{{ note.headline }}</h1>
+  {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
+  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }} min de lectura {{ tags(note) }}</p>
+  {{ toggles('n', note) }}
+  <div class="body">{{ note.body|markdown|safe }}</div>
+  {% if note.differences %}
+  <aside class="differences">
+    <h2>Dónde difieren</h2>
+    {{ note.differences|markdown|safe }}
+  </aside>
+  {% endif %}
+  <section class="sources">
+    <h2>Fuentes</h2>
+    <ol>
+      {% for a in note.articles %}
+      <li class="{{ 'is-read' if a.is_read }}">
+        <a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}</a>
+        <span class="meta">{{ a.source_name }}{% if a.content_source == 'excerpt' %} · solo extracto{% endif %}</span>
+        {{ toggles('a', a) }}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+</article>
+{% endblock %}

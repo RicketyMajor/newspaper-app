@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card %}
+{% block content %}
+{% if front %}
+<section class="front" aria-label="Portada">
+  <div class="front-lead">{{ card(front[0], lead=True) }}</div>
+  <div class="front-rest">{% for note in front[1:] %}{{ card(note) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% for name, notes in sections %}
+<section class="section-block" aria-labelledby="s-{{ loop.index }}">
+  <h2 id="s-{{ loop.index }}" class="section-title"><a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a></h2>
+  <div class="grid">{% for note in notes %}{{ card(note) }}{% endfor %}</div>
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,36 @@
+{% macro outlets(note) -%}
+{%- set n = note.articles|map(attribute='source_name')|unique|list|length -%}
+{{ n }} {{ 'fuente' if n == 1 else 'fuentes' }}
+{%- endmacro %}
+
+{% macro tags(note) -%}
+{% if note.single_source %}<span class="tag">Fuente única</span>{% endif %}
+{% if note.excerpt_only %}<span class="tag">Basada en extracto</span>{% endif %}
+{% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
+{%- endmacro %}
+
+{% macro card(note, lead=False) %}
+<article class="card{% if lead %} lead{% endif %}{% if note.is_read %} is-read{% endif %}">
+  <p class="kicker">{{ note.section }}{% if note.is_favorite %} · ★{% endif %}</p>
+  <h2><a href="/n/{{ note.id }}">{{ note.headline }}</a></h2>
+  {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
+  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }} min {{ tags(note) }}</p>
+</article>
+{% endmacro %}
+
+{% set FLAGS = [
+  ('read', 'is_read', '✓ Leído', 'Marcar leído'),
+  ('favorite', 'is_favorite', '★ Favorito', '☆ Favorito'),
+  ('saved', 'is_saved', '✓ Guardado', 'Guardar para después'),
+] %}
+
+{% macro toggles(kind, obj) %}
+<div class="toggles">
+  {% for flag, attr, on, off in FLAGS %}
+  <form method="post" action="/{{ kind }}/{{ obj.id }}/estado">
+    <input type="hidden" name="flag" value="{{ flag }}">
+    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{{ on if obj[attr] else off }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endmacro %}

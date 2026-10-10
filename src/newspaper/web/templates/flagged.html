@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, toggles with context %}
+{% block title %}{{ title }} · {{ paper }}{% endblock %}
+{% block content %}
+<h2 class="section-title page">{{ title }}</h2>
+<h3 class="subhead">Notas</h3>
+<div class="grid">{% for note in notes %}{{ card(note) }}{% else %}<p>Ninguna nota.</p>{% endfor %}</div>
+<h3 class="subhead">Artículos originales</h3>
+<ul class="plain">
+  {% for a in articles %}
+  <li>
+    <a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}</a>
+    <span class="meta">{{ a.source_name }}</span>
+    {{ toggles('a', a) }}
+  </li>
+  {% else %}
+  <li>Ningún artículo.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

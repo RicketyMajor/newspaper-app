@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ paper }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body data-today="{{ today_status or '' }}">
+  {% if banner %}<p class="banner" role="status">{{ banner }}</p>{% endif %}
+  <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>
+  <header class="wrap masthead">
+    <h1><a href="/">{{ paper }}</a></h1>
+    <div class="dateline">
+      <span>{% if edition %}{{ edition.edition_date|long_date }}{% else %}Diario personal{% endif %}</span>
+      <form class="search" action="/buscar" role="search">
+        <label for="q" class="sr-only">Buscar</label>
+        <input id="q" name="q" type="search" placeholder="Buscar en el archivo" value="{{ q or '' }}">
+      </form>
+    </div>
+    <nav class="sections" aria-label="Secciones">
+      <a href="/">Portada</a>
+      {% if edition and sections is defined %}{% for name, _ in sections %}<a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a>{% endfor %}{% endif %}
+      <a href="/archivo">Archivo</a>
+      <a href="/favoritos">Favoritos</a>
+      <a href="/guardados">Guardados</a>
+    </nav>
+  </header>
+  <main class="wrap">{% block content %}{% endblock %}</main>
+  <footer class="wrap colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.</footer>
+</body>
+</html>

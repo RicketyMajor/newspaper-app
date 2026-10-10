@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Buscar · {{ paper }}{% endblock %}
+{% block content %}
+<h2 class="section-title page">Resultados{% if q %} para «{{ q }}»{% endif %}</h2>
+<ul class="plain results">
+  {% for h in hits %}
+  <li>
+    <span class="tag">{{ 'Nota' if h.kind == 'note' else 'Original' }}</span>
+    {% if h.kind == 'note' %}<a href="/n/{{ h.id }}">{{ h.title }}</a>
+    {% else %}<a href="/a/{{ h.id }}" target="_blank" rel="noopener">{{ h.title }}</a>{% endif %}
+    <p class="snippet">{{ h.snippet }}</p>
+  </li>
+  {% else %}
+  <li>{% if q %}Sin resultados.{% else %}Escribe algo para buscar en todas las ediciones.{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endblock %}

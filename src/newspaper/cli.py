@@ -79,6 +79,17 @@ def read(ctx: click.Context) -> None:
     console.print("[dim]El lector de terminal todavía no está implementado.[/dim]")
 
 
+@main.command()
+@click.option("--port", default=8765, show_default=True)
+@click.option("--no-browser", is_flag=True, help="No abrir el navegador.")
+@click.pass_context
+def web(ctx: click.Context, port: int, no_browser: bool) -> None:
+    """Abre el lector web local en el navegador."""
+    from .web.app import serve
+
+    serve(_load(ctx), port=port, open_browser=not no_browser)
+
+
 @main.command(name="add-feed")
 @click.pass_context
 def add_feed(ctx: click.Context) -> None:
