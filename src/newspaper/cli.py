@@ -75,8 +75,9 @@ def generate(ctx: click.Context, force: bool) -> None:
 @click.pass_context
 def read(ctx: click.Context) -> None:
     """Abre el lector de terminal."""
-    _load(ctx)
-    console.print("[dim]El lector de terminal todavía no está implementado.[/dim]")
+    from .tui.app import NewspaperApp
+
+    NewspaperApp(_load(ctx)).run()
 
 
 @main.command()

@@ -13,21 +13,13 @@ from markdown_it import MarkdownIt
 from sqlalchemy.orm import Session
 
 from ..config.models import NewspaperConfig
+from ..dates import long_date
 from ..edition.generate import local_today
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article, EditionStatus
 
 HERE = Path(__file__).parent
-DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-MONTHS = [
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-]  # fmt: skip
-
-
-def long_date(d: date) -> str:
-    return f"{DAYS[d.weekday()]} {d.day} de {MONTHS[d.month - 1]} de {d.year}"
 
 
 def create_app(config: NewspaperConfig) -> FastAPI:
