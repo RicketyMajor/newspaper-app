@@ -11,6 +11,7 @@ import click
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy.orm import Session
 
 from .config.loader import (
     EXAMPLE_CONFIG,
@@ -20,6 +21,10 @@ from .config.loader import (
     load_config,
 )
 from .config.models import FeedConfig, NewspaperConfig
+from .edition.generate import generate as run_generate
+from .edition.generate import local_today
+from .storage import queries
+from .storage.database import open_db
 
 # ponytail: redirected output on Windows may be cp1252; replace unencodable chars, don't crash.
 for _stream in (sys.stdout, sys.stderr):
@@ -53,11 +58,17 @@ def _load(ctx: click.Context) -> NewspaperConfig:
 
 
 @main.command()
+@click.option("--force", is_flag=True, help="Regenera la edición de hoy aunque ya esté lista.")
 @click.pass_context
-def generate(ctx: click.Context) -> None:
+def generate(ctx: click.Context, force: bool) -> None:
     """Prepara la edición de hoy."""
-    _load(ctx)
-    console.print("[dim]La generación todavía no está implementada.[/dim]")
+    config = _load(ctx)
+    console.print(f"Preparando la edición del {local_today(config):%d-%m-%Y}…")
+    result = run_generate(config, force=force, log=lambda msg: console.print(f"[dim]{msg}[/dim]"))
+    color = {"ready": "green", "failed": "red", "skipped": "yellow"}[result.status]
+    console.print(f"[{color}]{result.message}[/{color}]")
+    if result.status == "failed":
+        raise SystemExit(1)
 
 
 @main.command()
@@ -114,9 +125,24 @@ def config(ctx: click.Context) -> None:
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
-    """Muestra el estado de la última edición."""
-    _load(ctx)
-    console.print("[dim]El estado de ediciones todavía no está implementado.[/dim]")
+    """Muestra el estado de la edición de hoy y la última disponible."""
+    config = _load(ctx)
+    with Session(open_db(config)) as s:
+        today = queries.today_edition(s, local_today(config))
+        latest = queries.latest_ready_edition(s)
+        if today is None:
+            console.print("Hoy: sin generar.")
+        else:
+            console.print(f"Hoy: {today.status.value}")
+            if today.error:
+                console.print(f"[red]{today.error}[/red]")
+            if today.feed_errors:
+                console.print(f"[yellow]Fuentes con error:\n{today.feed_errors}[/yellow]")
+        if latest:
+            notes = len(latest.notes)
+            console.print(f"Última edición lista: {latest.edition_date} ({notes} notas)")
+        else:
+            console.print("Todavía no hay ediciones listas.")
 
 
 if __name__ == "__main__":
