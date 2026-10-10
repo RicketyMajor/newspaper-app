@@ -1,27 +1,42 @@
+import json
 import tomllib
 from pathlib import Path
-import os
-from .models import NewspaperConfig
+
+from .models import FeedConfig, NewspaperConfig
+
+EXAMPLE_CONFIG = Path(__file__).parent.parent / "newspaper.example.toml"
+
+
+def default_config_path() -> Path:
+    return Path.home() / ".newspaper" / "newspaper.toml"
+
+
+def find_config_path() -> Path | None:
+    """./newspaper.toml first, then ~/.newspaper/newspaper.toml."""
+    for path in (Path.cwd() / "newspaper.toml", default_config_path()):
+        if path.exists():
+            return path
+    return None
+
 
 def load_config(path: Path | None = None) -> NewspaperConfig:
-    """Loads configuration from a TOML file."""
+    path = path or find_config_path()
     if path is None:
-        # Check CWD first
-        cwd_path = Path.cwd() / "newspaper.toml"
-        if cwd_path.exists():
-            path = cwd_path
-        else:
-            # Fallback to ~/.newspaper/newspaper.toml
-            home_path = Path.home() / ".newspaper" / "newspaper.toml"
-            if home_path.exists():
-                path = home_path
-            else:
-                raise FileNotFoundError("Could not find newspaper.toml in CWD or ~/.newspaper/")
-                
+        raise FileNotFoundError("No newspaper.toml in the current directory or ~/.newspaper/")
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
-        
     with open(path, "rb") as f:
         data = tomllib.load(f)
-        
-    return NewspaperConfig(**data)
+    return NewspaperConfig(**data, path=path)
+
+
+def append_feed(path: Path, feed: FeedConfig) -> None:
+    """Append a [[feeds]] block, refusing to write a file that would no longer parse."""
+    # ponytail: json.dumps(ensure_ascii=False) emits a valid TOML basic string for these values.
+    lines = ["", "[[feeds]]"]
+    for key, value in feed.model_dump().items():
+        lines.append(f"{key} = {json.dumps(value, ensure_ascii=False)}")
+    current = path.read_text(encoding="utf-8")
+    updated = current.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
+    tomllib.loads(updated)
+    path.write_text(updated, encoding="utf-8")
