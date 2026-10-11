@@ -1,6 +1,6 @@
-// Poll today's edition while it is being prepared; announce it when ready.
+// Poll until today's edition is ready (it may be starting in the background); announce it.
 const shown = document.body.dataset.today;
-if (shown === "generating") {
+if (shown !== "ready") {
   const timer = setInterval(async () => {
     const res = await fetch("/estado").catch(() => null);
     if (!res || !res.ok) return;

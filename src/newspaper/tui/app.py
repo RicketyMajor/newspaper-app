@@ -15,7 +15,7 @@ from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Ma
 
 from ..config.models import NewspaperConfig
 from ..dates import long_date
-from ..edition.generate import local_today
+from ..edition.generate import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article, Edition, EditionStatus, Note
@@ -31,6 +31,10 @@ class Entry(ListItem):
         self.kind, self.ref = kind, ref
 
 
+def marks(item: Note | Article) -> str:
+    return ("★ " if item.is_favorite else "") + ("◆ " if item.is_saved else "")
+
+
 def note_text(note: Note) -> Text:
     outlets = len({a.source_name for a in note.articles})
     meta = [note.section, f"{outlets} {'fuente' if outlets == 1 else 'fuentes'}"]
@@ -40,15 +44,15 @@ def note_text(note: Note) -> Text:
         ("basada en extracto", note.excerpt_only),
         ("sin redactar", not note.drafted),
     ) if on]  # fmt: skip
-    marks = ("★ " if note.is_favorite else "") + ("◆ " if note.is_saved else "")
     style = "dim" if note.is_read else "bold"
-    return Text.assemble((marks + note.headline, style), "\n", (" · ".join(meta), "dim"))
+    return Text.assemble((marks(note) + note.headline, style), "\n", (" · ".join(meta), "dim"))
 
 
 def article_text(article: Article) -> Text:
-    marks = ("★ " if article.is_favorite else "") + ("◆ " if article.is_saved else "")
     style = "dim" if article.is_read else ""
-    return Text.assemble((marks + article.title, style), "\n", (article.source_name, "dim"))
+    return Text.assemble(
+        (marks(article) + article.title, style), "\n", (article.source_name, "dim")
+    )
 
 
 class VimList(ListView):
@@ -108,12 +112,25 @@ class ReaderScreen(Screen):
             return
         with self.reader.session() as s, s.begin():
             value = queries.set_flag(s, target[0], target[1], flag)
+            self.show_flags(s, *target)
         self.notify(f"{FLAG_LABELS[flag]}: {'sí' if value else 'no'}")
+
+    def show_flags(self, s: Session, kind: str, ref: int) -> None:
+        """Redraw the highlighted row so a toggled flag shows at once."""
+        entry = self.highlighted()
+        if entry and (entry.kind, entry.ref) == (kind, ref):
+            item = s.get(Note, ref) if kind == "note" else s.get(Article, ref)
+            entry.query_one(Label).update(note_text(item) if kind == "note" else article_text(item))
 
     def action_open_original(self) -> None:
         target = self.target()
-        if target and target[0] == "article":
-            self.reader.open_article(target[1])
+        if target is None:
+            return
+        kind, ref = target
+        if kind == "note":  # a listed note opens its main source
+            with self.reader.session() as s:
+                ref = queries.get_note(s, ref).articles[0].id
+        self.reader.open_article(ref)
 
     def open(self, kind: str, ref: Any) -> None:
         if kind == "note":
@@ -199,7 +216,7 @@ class NoteScreen(ReaderScreen):
         with self.reader.session() as s, s.begin():
             note = queries.get_note(s, self.note_id)
             note.is_read = True
-            self.sub_title = f"{note.section} · {long_date(note.edition.edition_date)}"
+            self.show_flags(s, "note", self.note_id)
             parts = [f"# {note.headline}"]
             if note.dek:
                 parts.append(f"*{note.dek}*")
@@ -216,6 +233,14 @@ class NoteScreen(ReaderScreen):
         if self.focused is self.query_one("#sources"):
             return super().target()
         return ("note", self.note_id)
+
+    def show_flags(self, s: Session, kind: str, ref: int) -> None:
+        if kind == "article":
+            return super().show_flags(s, kind, ref)
+        note = s.get(Note, ref)
+        day = long_date(note.edition.edition_date)
+        unread = "" if note.is_read else " · no leída"
+        self.sub_title = f"{marks(note)}{note.section} · {day}{unread}"
 
     def action_open_original(self) -> None:
         sources = self.query_one("#sources", ListView)
@@ -304,11 +329,7 @@ class NewspaperApp(App):
         self.today_status = status
 
     def banner_text(self) -> str | None:
-        if self.today_status == EditionStatus.generating:
-            return "Preparando la edición de hoy…"
-        if self.today_status == EditionStatus.failed:
-            return f"La edición de hoy falló: {self.today_error}"
-        return None
+        return today_banner(self.today_status, self.today_error)
 
     def open_article(self, article_id: int) -> None:
         with self.session() as s, s.begin():

@@ -14,10 +14,10 @@ from sqlalchemy.orm import Session
 
 from ..config.models import NewspaperConfig
 from ..dates import long_date
-from ..edition.generate import local_today
+from ..edition.generate import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, EditionStatus
+from ..storage.models import Article
 
 HERE = Path(__file__).parent
 
@@ -40,11 +40,9 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
-        banner = None
-        if today and today.status == EditionStatus.generating:
-            banner = "Preparando la edición de hoy…"
-        elif today and today.status == EditionStatus.failed:
-            banner = f"La edición de hoy falló: {today.error}"
+        banner = today_banner(today.status, today.error) if today else None
+        if context.get("edition") is not None:  # section nav on every edition page
+            context.setdefault("sections", queries.section_counts(s, context["edition"].id))
         return templates.TemplateResponse(
             request,
             name,

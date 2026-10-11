@@ -3,5 +3,5 @@
 {% block title %}{{ section }} · {{ paper }}{% endblock %}
 {% block content %}
 <h2 class="section-title page">{{ section }}</h2>
-<div class="grid">{% for note in notes %}{{ card(note) }}{% else %}<p>Sin notas en esta sección.</p>{% endfor %}</div>
+<div class="grid">{% for note in notes %}{{ card(note, kicker=False) }}{% else %}<p>Sin notas en esta sección.</p>{% endfor %}</div>
 {% endblock %}

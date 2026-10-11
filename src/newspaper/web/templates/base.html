@@ -21,7 +21,7 @@
     </div>
     <nav class="sections" aria-label="Secciones">
       <a href="/">Portada</a>
-      {% if edition and sections is defined %}{% for name, _ in sections %}<a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a>{% endfor %}{% endif %}
+      {% if edition %}{% for name, _ in sections %}<a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a>{% endfor %}{% endif %}
       <a href="/archivo">Archivo</a>
       <a href="/favoritos">Favoritos</a>
       <a href="/guardados">Guardados</a>

@@ -2,7 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from newspaper.storage.models import Article, Note
+from newspaper.edition.generate import local_today
+from newspaper.storage.models import Article, Edition, EditionStatus, Note
 from newspaper.web.app import create_app
 
 
@@ -75,3 +76,22 @@ def test_section_archive_search_and_status(client, seeded):
     status = client.get("/estado").json()
     assert status["latest"] == "2026-10-10"
     assert set(status) == {"today", "error", "latest"}
+
+
+def test_section_nav_on_inner_pages_without_repeated_kicker(client, seeded):
+    nav = '<a href="/e/2026-10-10/Mundo">Mundo</a>'
+    assert nav in client.get(f"/n/{seeded['front']}").text
+    section = client.get("/e/2026-10-10/Mundo").text
+    assert nav in section
+    assert '<p class="kicker">Mundo' not in section
+    front = client.get("/").text
+    assert '<p class="kicker">Chile</p>' in front  # front-page cards keep their section
+    assert '<p class="kicker">Mundo' not in front
+
+
+def test_failed_today_suggests_generate(client, engine, config, seeded):
+    with Session(engine) as s, s.begin():
+        s.add(Edition(edition_date=local_today(config), status=EditionStatus.failed, error="X"))
+    page = client.get("/").text
+    assert "La edición de hoy falló: X" in page
+    assert "newspaper generate" in page

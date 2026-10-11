@@ -9,9 +9,10 @@
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
 {%- endmacro %}
 
-{% macro card(note, lead=False) %}
+{% macro card(note, lead=False, kicker=True) %}
 <article class="card{% if lead %} lead{% endif %}{% if note.is_read %} is-read{% endif %}">
-  <p class="kicker">{{ note.section }}{% if note.is_favorite %} · ★{% endif %}</p>
+  {%- set label = [note.section if kicker, '★' if note.is_favorite]|select|join(' · ') %}
+  {% if label %}<p class="kicker">{{ label }}</p>{% endif %}
   <h2><a href="/n/{{ note.id }}">{{ note.headline }}</a></h2>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }} min {{ tags(note) }}</p>

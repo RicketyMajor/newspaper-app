@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from textual.widgets import Input, ListView
+from textual.widgets import Input, Label, ListView
 
 from newspaper.storage.models import Article, Note
 from newspaper.tui.app import EditionScreen, ListScreen, NewspaperApp, NoteScreen, SearchScreen
@@ -69,3 +69,25 @@ async def test_empty_state_without_editions(config):
     async with app.run_test() as pilot:
         await pilot.pause()
         assert "Todavía no hay ediciones" in str(app.screen.query_one("#empty").render())
+
+
+async def test_note_shows_flags_after_toggling(config, seeded):
+    app = NewspaperApp(config)
+    async with app.run_test() as pilot:
+        await pilot.press("l", "f")
+        assert app.screen.sub_title.startswith("★ Chile")
+        await pilot.press("m")
+        assert app.screen.sub_title.endswith("no leída")
+        sources = app.screen.query_one("#sources", ListView)
+        sources.focus()
+        await pilot.press("s")
+        assert str(sources.highlighted_child.query_one(Label).render()).startswith("◆ ")
+
+
+async def test_o_on_a_listed_note_opens_its_main_source(config, seeded, monkeypatch):
+    opened = []
+    monkeypatch.setattr("newspaper.tui.app.webbrowser.open", opened.append)
+    app = NewspaperApp(config)
+    async with app.run_test() as pilot:
+        await pilot.press("o")
+    assert opened == ["https://news.test/1"]
