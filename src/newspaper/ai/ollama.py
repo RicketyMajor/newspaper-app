@@ -33,6 +33,9 @@ DRAFT_SCHEMA = {
     "required": list(_FIELDS),
 }
 LANGUAGE_NAMES = {"es": "español", "en": "English"}
+# ponytail: fits generate.MAX_CHARS_PER_NOTE (~6k tokens) + prompt + answer; Ollama's 4096
+# default silently cuts the material. Raise both together if notes need more source text.
+NUM_CTX = 8192
 
 SYSTEM_PROMPT = """\
 You are the editor of a personal daily newspaper. You receive one or more articles, \
@@ -91,7 +94,7 @@ class Ollama:
                 "model": self.cfg.model,
                 "stream": False,
                 "format": DRAFT_SCHEMA,
-                "options": {"temperature": 0.3},
+                "options": {"temperature": 0.3, "num_ctx": NUM_CTX},
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": sources},

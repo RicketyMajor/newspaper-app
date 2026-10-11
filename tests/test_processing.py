@@ -62,6 +62,7 @@ def test_draft_parses_structured_output_and_prompts_in_language():
     assert seen["format"]["required"] == ["headline", "dek", "body", "differences"]
     assert "español" in seen["messages"][0]["content"]
     assert "CIPER" in seen["messages"][1]["content"]
+    assert seen["options"]["num_ctx"] >= 8192  # Ollama's 4096 default truncates the material
 
 
 def test_draft_with_invalid_json_is_a_note_level_error():
