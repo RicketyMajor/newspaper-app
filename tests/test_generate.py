@@ -69,6 +69,21 @@ class FakeLLM:
         return Draft(f"Nota: {titles[0]}", "Bajada", f"Cuerpo según {outlets}.", "Difieren.")
 
 
+class FlakyLLM(FakeLLM):
+    """Every note's first draft attempt fails (bad JSON); the second works."""
+
+    def __init__(self):
+        super().__init__()
+        self.tried = set()
+
+    def draft(self, materials, language):
+        title = materials[0][1]
+        if title not in self.tried:
+            self.tried.add(title)
+            raise OllamaError("draft: JSON inválido")
+        return super().draft(materials, language)
+
+
 def run(config, llm=None, **kwargs):
     return generate(config, http=http(), llm=llm or FakeLLM(), now=NOW, **kwargs)
 
@@ -118,6 +133,12 @@ def test_ollama_down_fails_and_keeps_previous_edition(config, engine, seeded):
         assert queries.latest_ready_edition(s).id == seeded["edition"]
         failed = queries.today_edition(s, date(2026, 10, 11))
         assert (failed.status, failed.error) == (EditionStatus.failed, result.message)
+
+
+def test_a_failed_draft_is_retried_once(config, engine):
+    assert run(config, llm=FlakyLLM()).status == "ready"
+    with Session(engine) as s:
+        assert all(note.drafted for note in queries.latest_ready_edition(s).notes)
 
 
 def test_ollama_stuck_on_every_note_fails_the_edition(config, monkeypatch):

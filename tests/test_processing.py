@@ -65,6 +65,30 @@ def test_draft_parses_structured_output_and_prompts_in_language():
     assert seen["options"]["num_ctx"] >= 8192  # Ollama's 4096 default truncates the material
 
 
+def test_draft_material_never_contains_straight_double_quotes():
+    # The JSON grammar ends a field at a raw ", and gemma3 copies quotes from the material.
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        content = {"headline": "t", "dek": "", "body": "b", "differences": ""}
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    ollama_with(handler).draft([("DW", 'Libera a las "cucarachas"', 'Dijo "basta" y 5" ')], "es")
+
+    material = seen["messages"][1]["content"]
+    assert '"' not in material
+    assert "las «cucarachas»" in material and "Dijo «basta»" in material
+
+
+def test_draft_drops_an_outlet_tag_before_the_body():
+    def handler(request):
+        content = {"headline": "t", "dek": "", "body": "[CIPER] El texto.", "differences": ""}
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    assert ollama_with(handler).draft([("CIPER", "t", "x")], "es").body == "El texto."
+
+
 def test_draft_with_invalid_json_is_a_note_level_error():
     def handler(request):
         return httpx.Response(200, json={"message": {"content": "not json"}})

@@ -325,15 +325,16 @@ def _materials(articles: list[Article]) -> list[tuple[str, str, str]]:
 
 def _draft(llm: Ollama, sel: Selected, language: str) -> _NoteDraft:
     single = len({a.source_name for a in sel.items}) == 1
-    try:
-        d = llm.draft(_materials(sel.items), language)
+    for _attempt in range(2):  # sampling sometimes yields bad JSON or an empty body; retry once
+        try:
+            d = llm.draft(_materials(sel.items), language)
+        except OllamaUnavailableError:
+            raise
+        except OllamaError:
+            continue
         if d.headline and d.body:
             differences = None if single or not d.differences else d.differences
             return _NoteDraft(sel, d.headline, d.dek, d.body, differences, True)
-    except OllamaUnavailableError:
-        raise
-    except OllamaError:
-        pass
     # Fallback: the original headlines and excerpts, clearly labelled as not drafted.
     body = "\n\n".join(f"**{a.source_name}**: {a.summary or a.content}" for a in sel.items)
     return _NoteDraft(sel, sel.items[0].title, "", body, None, False)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -42,16 +43,33 @@ You are the editor of a personal daily newspaper. You receive one or more articl
 from one or more outlets, about the same event. Write ONE integrated note.
 
 Rules:
-- Write everything in {language}.
+- Write everything in {language}, following its newspaper conventions.
 - Use only facts present in the material. Never invent data, quotes, names or figures.
-- headline: informative, at most 15 words, no clickbait.
+- Ignore website boilerplate in the material (subscription or donation appeals, newsletter, \
+follow-us, cookie or app notices) and never comment on the material itself or on what it lacks.
+- For quotations use «…» in Spanish or “…” in English, never the straight double quote.
+- headline: informative, at most 15 words, no clickbait, in sentence case: capitalize only \
+the first word and proper nouns, never every word.
 - dek: one sentence on why it matters.
-- body: 3 to 6 paragraphs of Markdown: what happened, then context. Attribute facts that \
-only one outlet reports ("según CIPER, ...").
+- body: 3 to 6 paragraphs of Markdown, starting directly with the first paragraph (no title, \
+no headings, do not repeat the headline): what happened, then context. Attribute facts that \
+only one outlet reports (según <outlet>, …).
+- Opinion columns, analyses and interviews: say what they are and attribute every view to \
+its authors. Never present an opinion as a fact.
 - differences: when two or more outlets are present, explain where their coverage differs \
 (facts, figures, emphasis or contradictions), always naming each outlet. Empty string if \
 there is one outlet or no relevant difference.
 """
+
+
+_QUOTED = re.compile(r'"([^"\n]*)"')
+_OUTLET_TAG = re.compile(r"^\[[^\]\n]{1,40}\]\s*")
+
+
+def _no_straight_quotes(text: str) -> str:
+    """The JSON grammar ends a field at a raw " and the model copies quotes from its material,
+    which silently cut headlines and bodies; it never gets to see one."""
+    return _QUOTED.sub(r"«\1»", text).replace('"', "'")
 
 
 class Ollama:
@@ -84,8 +102,11 @@ class Ollama:
 
     def draft(self, materials: list[tuple[str, str, str]], language: str) -> Draft:
         """materials: (outlet, title, text) per article."""
-        sources = "\n\n".join(
-            f"### Outlet: {outlet}\nTitle: {title}\n\n{text}" for outlet, title, text in materials
+        sources = _no_straight_quotes(
+            "\n\n".join(
+                f"### Outlet: {outlet}\nTitle: {title}\n\n{text}"
+                for outlet, title, text in materials
+            )
         )
         system = SYSTEM_PROMPT.format(language=LANGUAGE_NAMES.get(language, language))
         data = self._post(
@@ -103,6 +124,8 @@ class Ollama:
         )
         try:
             fields = json.loads(data["message"]["content"])
-            return Draft(**{k: str(fields.get(k) or "").strip() for k in _FIELDS})
+            draft = Draft(**{k: str(fields.get(k) or "").strip() for k in _FIELDS})
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
             raise OllamaError(f"draft: JSON inválido ({e})") from e
+        draft.body = _OUTLET_TAG.sub("", draft.body)  # it mimics the material's outlet headers
+        return draft
