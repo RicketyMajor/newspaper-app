@@ -134,7 +134,7 @@ def set_flag(s: Session, kind: Kind, obj_id: int, flag: Flag, value: bool | None
     """Set a reading flag, or toggle it when `value` is None. Returns the new value."""
     obj = s.get(_MODELS[kind], obj_id)
     if obj is None:
-        raise LookupError(f"{kind} {obj_id} not found")
+        raise LookupError(f"No existe {kind} {obj_id}")
     attr = _FLAGS[flag]
     new = (not getattr(obj, attr)) if value is None else value
     setattr(obj, attr, new)

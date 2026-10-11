@@ -41,7 +41,7 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
     parsed = feedparser.parse(data)
     if not parsed.entries:
         reason = parsed.get("bozo_exception") or "no entries"
-        raise ValueError(f"{feed.name}: not a usable feed ({reason})")
+        raise ValueError(f"{feed.name}: el feed no se puede leer ({reason})")
 
     articles = []
     for entry in parsed.entries:

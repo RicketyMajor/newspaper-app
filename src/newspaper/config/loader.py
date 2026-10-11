@@ -22,9 +22,9 @@ def find_config_path() -> Path | None:
 def load_config(path: Path | None = None) -> NewspaperConfig:
     path = path or find_config_path()
     if path is None:
-        raise FileNotFoundError("No newspaper.toml in the current directory or ~/.newspaper/")
+        raise FileNotFoundError("No hay newspaper.toml en este directorio ni en ~/.newspaper/")
     if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
+        raise FileNotFoundError(f"No existe el archivo de configuración: {path}")
     with open(path, "rb") as f:
         data = tomllib.load(f)
     return NewspaperConfig(**data, path=path)
