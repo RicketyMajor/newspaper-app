@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from newspaper.edition.generate import local_today
+from newspaper.edition.today import local_today
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
 from newspaper.web.app import create_app
 

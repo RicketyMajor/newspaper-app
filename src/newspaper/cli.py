@@ -22,8 +22,7 @@ from .config.loader import (
     load_config,
 )
 from .config.models import FeedConfig, NewspaperConfig
-from .edition.generate import generate as run_generate
-from .edition.generate import local_today, maybe_spawn_generate
+from .edition.today import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
 
@@ -63,6 +62,8 @@ def _load(ctx: click.Context) -> NewspaperConfig:
 @click.pass_context
 def generate(ctx: click.Context, force: bool) -> None:
     """Prepara la edición de hoy."""
+    from .edition.generate import generate as run_generate  # heavy: keep the readers fast
+
     config = _load(ctx)
     console.print(f"Preparando la edición del {local_today(config):%d-%m-%Y}…")
     result = run_generate(config, force=force, log=lambda msg: console.print(f"[dim]{msg}[/dim]"))

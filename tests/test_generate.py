@@ -10,7 +10,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from newspaper.ai.ollama import Draft, OllamaError, OllamaUnavailableError
-from newspaper.edition.generate import generate, pid_alive
+from newspaper.edition.generate import generate
+from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Edition, EditionStatus
 

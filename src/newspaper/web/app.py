@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..config.models import NewspaperConfig
 from ..dates import long_date
-from ..edition.generate import local_today, today_banner
+from ..edition.today import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article

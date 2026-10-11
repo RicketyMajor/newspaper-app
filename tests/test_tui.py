@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 from sqlalchemy.orm import Session
 from textual.widgets import Input, Label, ListView
 
@@ -91,3 +94,14 @@ async def test_o_on_a_listed_note_opens_its_main_source(config, seeded, monkeypa
     async with app.run_test() as pilot:
         await pilot.press("o")
     assert opened == ["https://news.test/1"]
+
+
+def test_readers_do_not_import_the_generator():
+    # `newspaper read` should start fast: no extraction, embeddings or LLM client on import.
+    code = (
+        "import sys, newspaper.cli, newspaper.tui.app, newspaper.web.app;"
+        "print(sorted(m for m in ('trafilatura', 'feedparser', 'newspaper.ai.ollama')"
+        " if m in sys.modules))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"

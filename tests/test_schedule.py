@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from newspaper import schedule
 from newspaper.cli import main
 from newspaper.config.loader import EXAMPLE_CONFIG
-from newspaper.edition import generate as gen
+from newspaper.edition import today as gen
 from newspaper.storage.models import Edition, EditionStatus
 
 AFTER_HOUR = datetime(2026, 10, 10, 12, tzinfo=UTC)  # 09:00 in Santiago, edition_hour = 6
