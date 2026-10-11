@@ -1,16 +1,23 @@
 {% extends "base.html" %}
-{% from "_macros.html" import outlets, tags, toggles with context %}
+{% from "_macros.html" import outlets, tags, original, toggles with context %}
 {% block title %}{{ note.headline }} · {{ paper }}{% endblock %}
+{% block nameplate %}<p class="nameplate"><a href="/">{{ paper }}</a></p>{% endblock %}
 {% block content %}
 <article class="note">
   <p class="kicker"><a href="/e/{{ edition.edition_date }}/{{ note.section }}">{{ note.section }}</a></p>
   <h1>{{ note.headline }}</h1>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min de lectura {{ tags(note) }}</p>
-  {{ toggles('n', note) }}
+  {% if note.single_source or note.excerpt_only or not note.drafted %}
+  <ul class="caveats">
+    {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
+    {% if note.excerpt_only %}<li><strong>Solo extracto:</strong> no se pudo leer el texto completo; la nota se basa en el resumen del feed.</li>{% endif %}
+    {% if not note.drafted %}<li><strong>Sin redactar:</strong> el modelo local no pudo redactarla; se muestran los extractos originales.</li>{% endif %}
+  </ul>
+  {% endif %}
   <div class="body">{{ note.body|markdown|safe }}</div>
   {% if note.differences %}
-  <aside class="differences">
+  <aside class="differences" id="difieren">
     <h2>Dónde difieren</h2>
     {{ note.differences|markdown|safe }}
   </aside>
@@ -19,13 +26,26 @@
     <h2>Fuentes</h2>
     <ol>
       {% for a in note.articles %}
-      <li class="{{ 'is-read' if a.is_read }}">
-        <a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}</a>
+      <li id="a-{{ a.id }}" class="{{ 'is-read' if a.is_read }}">
+        {{ original(a) }}
         <span class="meta">{{ a.source_name }}{% if a.content_source == 'excerpt' %} · solo extracto{% endif %}</span>
         {{ toggles('a', a) }}
       </li>
       {% endfor %}
     </ol>
   </section>
+  <footer class="note-end">
+    <h2 class="sr-only">Esta nota</h2>
+    {{ toggles('n', note) }}
+    <nav class="next" aria-label="Siguiente nota">
+      <p class="meta">Nota {{ position }} de {{ total }}</p>
+      {% if next_note %}
+      <a href="/n/{{ next_note.id }}"><span class="next-label">Siguiente</span> {{ next_note.headline }}</a>
+      {% else %}
+      <p class="next-label">Fin de la edición.</p>
+      {% endif %}
+      <a class="back" href="/e/{{ edition.edition_date }}">Volver a la portada</a>
+    </nav>
+  </footer>
 </article>
 {% endblock %}

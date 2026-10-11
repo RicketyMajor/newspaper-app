@@ -6,12 +6,14 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..config.models import NewspaperConfig
 from ..dates import long_date
@@ -21,6 +23,7 @@ from ..storage.database import open_db
 from ..storage.models import Article
 
 HERE = Path(__file__).parent
+STATIC = HERE / "static"
 
 
 def create_app(config: NewspaperConfig) -> FastAPI:
@@ -28,13 +31,19 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     app = FastAPI(title=config.general.edition_name, docs_url=None, redoc_url=None)
     # DNS rebinding: a foreign domain resolving to 127.0.0.1 must not read the reading history.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
-    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     templates = Jinja2Templates(directory=HERE / "templates")
     # LLM/RSS text is untrusted: no raw HTML, no external images (tracking pixels).
     markdown = MarkdownIt("commonmark", {"html": False}).disable("image")
     templates.env.filters["markdown"] = markdown.render
     templates.env.filters["long_date"] = long_date
+    # Cache-busting for /static after an upgrade: the newest file's mtime.
+    templates.env.globals["static_v"] = int(max(p.stat().st_mtime for p in STATIC.iterdir()))
+    templates.env.filters["lede"] = lambda body: body.strip().split("\n\n", 1)[0]
+    templates.env.filters["es_list"] = lambda items: " y ".join(
+        [", ".join(items[:-1]), items[-1]] if len(items) > 1 else items
+    )
 
     def db():
         with Session(engine) as s:
@@ -45,8 +54,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
         banner = today_banner(today.status, today.error) if today else None
-        if context.get("edition") is not None:  # section nav on every edition page
-            context.setdefault("sections", queries.section_counts(s, context["edition"].id))
+        # Masthead (date, progress, section nav) follows the page's edition, else the latest.
+        paper_edition = context.get("edition") or queries.latest_ready_edition(s)
         return templates.TemplateResponse(
             request,
             name,
@@ -54,9 +63,33 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "paper": config.general.edition_name,
                 "banner": banner,
                 "today_status": today.status.value if today else None,
+                "paper_edition": paper_edition,
+                "nav_sections": queries.section_counts(s, paper_edition.id)
+                if paper_edition
+                else [],
                 **context,
             },
         )
+
+    @app.exception_handler(StarletteHTTPException)
+    def http_error(request: Request, exc: StarletteHTTPException) -> HTMLResponse:
+        message = "Esta página no existe." if exc.detail == "Not Found" else exc.detail
+        title = "No encontrado" if exc.status_code == 404 else "No se pudo completar"
+        with Session(engine) as s:
+            response = render(request, s, "error.html", title=title, message=message)
+        response.status_code = exc.status_code
+        response.headers.update(exc.headers or {})  # e.g. Allow on a 405
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    def invalid_request(request: Request, _exc: RequestValidationError) -> HTMLResponse:
+        with Session(engine) as s:
+            response = render(
+                request, s, "error.html", title="Dirección no válida",
+                message="Revisa la fecha o el enlace.",
+            )  # fmt: skip
+        response.status_code = 422
+        return response
 
     def edition_page(request: Request, s: Session, edition) -> HTMLResponse:
         if edition is None:
@@ -90,9 +123,17 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         found = queries.get_note(s, note_id)
         if found is None:
             raise HTTPException(404, "Nota no encontrada")
+        # Opening marks it read; un-marking it (fetch, no reload) sticks until the next visit,
+        # like `m` in the TUI.
         queries.set_flag(s, "note", note_id, "read", True)
         s.commit()
-        return render(request, s, "note.html", edition=found.edition, note=found)
+        notes = found.edition.notes  # edition order (rank)
+        i = [n.id for n in notes].index(note_id)
+        next_note = notes[i + 1] if i + 1 < len(notes) else None
+        return render(
+            request, s, "note.html", edition=found.edition, note=found,
+            position=i + 1, total=len(notes), next_note=next_note,
+        )  # fmt: skip
 
     @app.get("/a/{article_id}")
     def original(s: DB, article_id: int):
@@ -113,12 +154,15 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
     ):
         try:
-            queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag)
+            value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag)
         except LookupError as e:
             raise HTTPException(404, str(e)) from e
         s.commit()
+        if "application/json" in request.headers.get("accept", ""):  # app.js, no reload
+            return {"value": value}
         back = urlsplit(request.headers.get("referer", "/"))
-        return RedirectResponse(back.path + (f"?{back.query}" if back.query else ""), 303)
+        anchor = f"#a-{obj_id}" if kind == "a" else ""  # without JS, land back on the source
+        return RedirectResponse(back.path + (f"?{back.query}" if back.query else "") + anchor, 303)
 
     @app.get("/archivo", response_class=HTMLResponse)
     def archive(request: Request, s: DB):
@@ -132,12 +176,18 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     @app.get("/favoritos", response_class=HTMLResponse)
     def favorites(request: Request, s: DB):
         notes, articles = queries.flagged(s, "favorite")
-        return render(request, s, "flagged.html", title="Favoritos", notes=notes, articles=articles)
+        return render(
+            request, s, "flagged.html", title="Favoritos", toggle="Favorito",
+            notes=notes, articles=articles,
+        )  # fmt: skip
 
     @app.get("/guardados", response_class=HTMLResponse)
     def saved(request: Request, s: DB):
         notes, articles = queries.flagged(s, "saved")
-        return render(request, s, "flagged.html", title="Guardados", notes=notes, articles=articles)
+        return render(
+            request, s, "flagged.html", title="Guardados", toggle="Guardado",
+            notes=notes, articles=articles,
+        )  # fmt: skip
 
     @app.get("/estado")
     def status(s: DB):

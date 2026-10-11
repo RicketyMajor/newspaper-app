@@ -4,9 +4,10 @@
 <h2 class="section-title page">Archivo</h2>
 <ul class="plain">
   {% for e in editions %}
-  <li><a href="/e/{{ e.edition_date }}">{{ e.edition_date|long_date }}</a> <span class="meta">{{ e.edition_date }} · {{ e.notes|length }}&nbsp;{{ 'nota' if e.notes|length == 1 else 'notas' }}</span></li>
+  {% set read = e.notes|selectattr('is_read')|list|length %}
+  <li><a href="/e/{{ e.edition_date }}">{{ e.edition_date|long_date|capitalize }}</a> <span class="meta">{{ e.notes|length }}&nbsp;{{ 'nota' if e.notes|length == 1 else 'notas' }} · {{ read }}&nbsp;{{ 'leída' if read == 1 else 'leídas' }}</span></li>
   {% else %}
-  <li>Todavía no hay ediciones.</li>
+  <li class="hint">Todavía no hay ediciones.</li>
   {% endfor %}
 </ul>
 {% endblock %}

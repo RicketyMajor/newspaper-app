@@ -3,29 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ paper }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <title>{% block title %}{{ paper }}{% if paper_edition %} · {{ paper_edition.edition_date|long_date }}{% endif %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
+  <script src="/static/app.js?v={{ static_v }}" defer></script>
 </head>
 <body data-today="{{ today_status or '' }}">
   <a class="skip" href="#main">Saltar al contenido</a>
   {% if banner %}<p class="banner" role="status">{{ banner }}</p>{% endif %}
   <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+  {% set here = request.url.path %}
   <header class="wrap masthead">
-    <h1><a href="/">{{ paper }}</a></h1>
+    {% block nameplate %}<h1 class="nameplate"><a href="/">{{ paper }}</a></h1>{% endblock %}
     <div class="dateline">
-      <span>{% if edition %}{{ edition.edition_date|long_date }}{% else %}Diario personal{% endif %}</span>
+      {% if paper_edition %}
+      {% set notes = paper_edition.notes %}
+      <span>{{ paper_edition.edition_date|long_date }}</span>
+      <span class="progress">{{ notes|length }}&nbsp;{{ 'nota' if notes|length == 1 else 'notas' }} · {{ notes|sum(attribute='read_minutes') }}&nbsp;min · {{ notes|selectattr('is_read')|list|length }}&nbsp;leídas</span>
+      {% else %}
+      <span>Diario personal</span>
+      {% endif %}
       <form class="search" action="/buscar" role="search">
         <label for="q" class="sr-only">Buscar</label>
         <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}">
       </form>
     </div>
     <nav class="sections" aria-label="Secciones">
-      <a href="/">Portada</a>
-      {% if edition %}{% for name, _ in sections %}<a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a>{% endfor %}{% endif %}
-      <a href="/archivo">Archivo</a>
-      <a href="/favoritos">Favoritos</a>
-      <a href="/guardados">Guardados</a>
+      {% macro navlink(href, label) %}<a href="{{ href }}"{% if here == href %} aria-current="page"{% endif %}>{{ label }}</a>{% endmacro %}
+      {{ navlink('/', 'Portada') }}
+      {% for name, _ in nav_sections %}{{ navlink('/e/' ~ paper_edition.edition_date ~ '/' ~ name, name) }}{% endfor %}
+      {{ navlink('/archivo', 'Archivo') }}
+      {{ navlink('/favoritos', 'Favoritos') }}
+      {{ navlink('/guardados', 'Guardados') }}
     </nav>
   </header>
   <main id="main" class="wrap">{% block content %}{% endblock %}</main>

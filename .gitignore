@@ -49,3 +49,6 @@ context/
 prompt.md
 # Personal config (the packaged example lives in src/newspaper/newspaper.example.toml)
 /newspaper.toml
+
+# Impeccable critique snapshots (local)
+.impeccable/

@@ -1,11 +1,11 @@
 {% macro outlets(note) -%}
-{%- set n = note.articles|map(attribute='source_name')|unique|list|length -%}
-{{ n }} {{ 'fuente' if n == 1 else 'fuentes' }}
+{%- set names = note.articles|map(attribute='source_name')|unique|list -%}
+<span class="outlets{% if names|length > 1 %} multi{% endif %}">{{ names|es_list }}</span>
 {%- endmacro %}
 
+{# Single source shows in the outlet name itself; the tags left are the warnings. #}
 {% macro tags(note) -%}
-{% if note.single_source %}<span class="tag">Fuente única</span>{% endif %}
-{% if note.excerpt_only %}<span class="tag">Basada en extracto</span>{% endif %}
+{% if note.excerpt_only %}<span class="tag">Solo extracto</span>{% endif %}
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
 {%- endmacro %}
 
@@ -15,24 +15,30 @@
     {%- if kicker %}{{ note.section }}{% endif %}{% if kicker and note.is_favorite %} · {% endif %}
     {%- if note.is_favorite %}<span aria-hidden="true">★</span><span class="sr-only">Favorito</span>{% endif -%}
   </p>{% endif %}
-  <h3><a href="/n/{{ note.id }}">{{ note.headline }}</a></h3>
+  <h3><a href="/n/{{ note.id }}">{% if note.is_read %}<span class="sr-only">Leída: </span>{% endif %}{{ note.headline }}</a></h3>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
+  {% if lead %}<div class="lede">{{ note.body|lede|markdown|safe }}</div>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min {{ tags(note) }}</p>
+  {% if lead and note.differences %}<p class="teaser"><a href="/n/{{ note.id }}#difieren">Ver dónde difieren los medios</a></p>{% endif %}
 </article>
 {% endmacro %}
 
-{# Fixed labels; the state lives in aria-pressed and the glyph is decorative. #}
+{% macro original(a) -%}
+<a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
+{%- endmacro %}
+
+{# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it). #}
 {% set FLAGS = [
   ('read', 'is_read', 'Leído', '✓'),
   ('favorite', 'is_favorite', 'Favorito', '★'),
-  ('saved', 'is_saved', 'Guardar para después', '✓'),
+  ('saved', 'is_saved', 'Guardado', '✓'),
 ] %}
 
 {% macro toggles(kind, obj) %}
 <div class="toggles">
   {% for flag, attr, label, glyph in FLAGS %}
   <form method="post" action="/{{ kind }}/{{ obj.id }}/estado?flag={{ flag }}">
-    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{% if obj[attr] %}<span aria-hidden="true">{{ glyph }} </span>{% endif %}{{ label }}</button>
+    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}"><span class="glyph" aria-hidden="true">{{ glyph }} </span>{{ label }}</button>
   </form>
   {% endfor %}
 </div>
