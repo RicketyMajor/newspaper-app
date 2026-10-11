@@ -6,7 +6,7 @@
   <p class="kicker"><a href="/e/{{ edition.edition_date }}/{{ note.section }}">{{ note.section }}</a></p>
   <h1>{{ note.headline }}</h1>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
-  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }} min de lectura {{ tags(note) }}</p>
+  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min de lectura {{ tags(note) }}</p>
   {{ toggles('n', note) }}
   <div class="body">{{ note.body|markdown|safe }}</div>
   {% if note.differences %}

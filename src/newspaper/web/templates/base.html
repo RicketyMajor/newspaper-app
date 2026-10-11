@@ -8,6 +8,7 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body data-today="{{ today_status or '' }}">
+  <a class="skip" href="#main">Saltar al contenido</a>
   {% if banner %}<p class="banner" role="status">{{ banner }}</p>{% endif %}
   <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>
   <header class="wrap masthead">
@@ -16,7 +17,7 @@
       <span>{% if edition %}{{ edition.edition_date|long_date }}{% else %}Diario personal{% endif %}</span>
       <form class="search" action="/buscar" role="search">
         <label for="q" class="sr-only">Buscar</label>
-        <input id="q" name="q" type="search" placeholder="Buscar en el archivo" value="{{ q or '' }}">
+        <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}">
       </form>
     </div>
     <nav class="sections" aria-label="Secciones">
@@ -27,7 +28,7 @@
       <a href="/guardados">Guardados</a>
     </nav>
   </header>
-  <main class="wrap">{% block content %}{% endblock %}</main>
+  <main id="main" class="wrap">{% block content %}{% endblock %}</main>
   <footer class="wrap colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.</footer>
 </body>
 </html>

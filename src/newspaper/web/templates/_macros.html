@@ -11,26 +11,29 @@
 
 {% macro card(note, lead=False, kicker=True) %}
 <article class="card{% if lead %} lead{% endif %}{% if note.is_read %} is-read{% endif %}">
-  {%- set label = [note.section if kicker, '★' if note.is_favorite]|select|join(' · ') %}
-  {% if label %}<p class="kicker">{{ label }}</p>{% endif %}
-  <h2><a href="/n/{{ note.id }}">{{ note.headline }}</a></h2>
+  {% if kicker or note.is_favorite %}<p class="kicker">
+    {%- if kicker %}{{ note.section }}{% endif %}{% if kicker and note.is_favorite %} · {% endif %}
+    {%- if note.is_favorite %}<span aria-hidden="true">★</span><span class="sr-only">Favorito</span>{% endif -%}
+  </p>{% endif %}
+  <h3><a href="/n/{{ note.id }}">{{ note.headline }}</a></h3>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
-  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }} min {{ tags(note) }}</p>
+  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min {{ tags(note) }}</p>
 </article>
 {% endmacro %}
 
+{# Fixed labels; the state lives in aria-pressed and the glyph is decorative. #}
 {% set FLAGS = [
-  ('read', 'is_read', '✓ Leído', 'Marcar leído'),
-  ('favorite', 'is_favorite', '★ Favorito', '☆ Favorito'),
-  ('saved', 'is_saved', '✓ Guardado', 'Guardar para después'),
+  ('read', 'is_read', 'Leído', '✓'),
+  ('favorite', 'is_favorite', 'Favorito', '★'),
+  ('saved', 'is_saved', 'Guardar para después', '✓'),
 ] %}
 
 {% macro toggles(kind, obj) %}
 <div class="toggles">
-  {% for flag, attr, on, off in FLAGS %}
+  {% for flag, attr, label, glyph in FLAGS %}
   <form method="post" action="/{{ kind }}/{{ obj.id }}/estado">
     <input type="hidden" name="flag" value="{{ flag }}">
-    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{{ on if obj[attr] else off }}</button>
+    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{% if obj[attr] %}<span aria-hidden="true">{{ glyph }} </span>{% endif %}{{ label }}</button>
   </form>
   {% endfor %}
 </div>

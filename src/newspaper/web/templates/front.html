@@ -2,7 +2,8 @@
 {% from "_macros.html" import card %}
 {% block content %}
 {% if front %}
-<section class="front" aria-label="Portada">
+<section class="front" aria-labelledby="portada">
+  <h2 id="portada" class="sr-only">Portada</h2>
   <div class="front-lead">{{ card(front[0], lead=True) }}</div>
   <div class="front-rest">{% for note in front[1:] %}{{ card(note) }}{% endfor %}</div>
 </section>
