@@ -31,7 +31,7 @@ class EditionConfig(BaseModel):
     window_hours: int = 36
     front_page_size: int = 5
     max_notes_per_section: int = 10
-    cluster_threshold: float = 0.80
+    cluster_threshold: float = 0.75
 
 
 class StorageConfig(BaseModel):

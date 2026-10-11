@@ -20,7 +20,7 @@ timeout_seconds = 300
 window_hours = 36                   # how far back to look for unpublished articles
 front_page_size = 5
 max_notes_per_section = 10
-cluster_threshold = 0.80            # cosine similarity to treat two articles as the same event
+cluster_threshold = 0.75            # cosine similarity to treat two articles as the same event
 
 [storage]
 database_path = "~/.newspaper/newspaper.db"

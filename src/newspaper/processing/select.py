@@ -25,10 +25,11 @@ def group_section(items: list[Any], sections: list[str]) -> str:
 def select_groups(
     groups: list[list[Any]], sections: list[str], front_size: int, per_section: int
 ) -> list[Selected]:
-    """Front page, then sections in TOML order; ranked by distinct outlets, then recency."""
+    """Front page, then sections in TOML order; ranked by distinct outlets, then articles in
+    the group (an outlet covering it twice), then recency."""
     ranked = sorted(
         groups,
-        key=lambda g: (len({a.source_name for a in g}), max(a.when for a in g)),
+        key=lambda g: (len({a.source_name for a in g}), len(g), max(a.when for a in g)),
         reverse=True,
     )
     front = [Selected(g, group_section(g, sections), True) for g in ranked[:front_size]]

@@ -112,3 +112,10 @@ def test_select_ranks_by_distinct_sources_then_recency_and_applies_limits():
         (same_outlet, "Chile", False),
         (late, "Ciencia", False),
     ]
+
+
+def test_select_breaks_outlet_ties_by_article_count_before_recency():
+    quake = [art("BBC Mundo", "Mundo", 1), art("BBC Mundo", "Mundo", 2)]  # older, covered twice
+    fresh = [art("DW", "Mundo", 9)]
+    selected = select_groups([fresh, quake], ["Mundo"], front_size=0, per_section=1)
+    assert [s.items for s in selected] == [quake]

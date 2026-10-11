@@ -68,7 +68,7 @@ Opening `read` or `web` after `edition_hour` starts today's edition in the backg
 
 `[edition]` in `newspaper.toml`:
 
-- `cluster_threshold` (default `0.80`): raise it if unrelated stories get merged, lower it if the same event appears as several notes.
+- `cluster_threshold` (default `0.75`): raise it if unrelated stories get merged, lower it if the same event appears as several notes.
 - `front_page_size`, `max_notes_per_section`, `window_hours`.
 
 ## Development
