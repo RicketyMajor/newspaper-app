@@ -76,3 +76,16 @@ def test_extract_returns_none_on_errors_and_short_pages():
         "https://x.test/missing": None,
         "https://x.test/short": None,
     }
+
+
+def test_parse_keeps_only_web_links():
+    # os.startfile (behind webbrowser.open on Windows) would run a file path or protocol handler.
+    links = ["file:///C:/x.exe", r"\\evil\share\x.exe", "ms-msdt:id", "https://ok.test/a"]
+    links.append("http://[")  # malformed: must not abort the whole feed
+    items = "".join(
+        f"<item><title>T{i}</title><link>{link}</link></item>" for i, link in enumerate(links)
+    )
+    feed = f'<?xml version="1.0"?><rss version="2.0"><channel>{items}</channel></rss>'
+    urls = [a.url for a in parse_feed(feed.encode(), CIPER)]
+    assert urls[0] == "https://ok.test/a"
+    assert all(u.startswith(("http://", "https://")) for u in urls)

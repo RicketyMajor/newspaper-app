@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,10 +26,13 @@ HERE = Path(__file__).parent
 def create_app(config: NewspaperConfig) -> FastAPI:
     engine = open_db(config)
     app = FastAPI(title=config.general.edition_name, docs_url=None, redoc_url=None)
+    # DNS rebinding: a foreign domain resolving to 127.0.0.1 must not read the reading history.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     templates = Jinja2Templates(directory=HERE / "templates")
-    markdown = MarkdownIt("commonmark", {"html": False})  # LLM/RSS text is untrusted
+    # LLM/RSS text is untrusted: no raw HTML, no external images (tracking pixels).
+    markdown = MarkdownIt("commonmark", {"html": False}).disable("image")
     templates.env.filters["markdown"] = markdown.render
     templates.env.filters["long_date"] = long_date
 

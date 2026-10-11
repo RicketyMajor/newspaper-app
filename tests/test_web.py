@@ -9,7 +9,7 @@ from newspaper.web.app import create_app
 
 @pytest.fixture
 def client(config):
-    return TestClient(create_app(config))
+    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
 
 def test_front_page_shows_lead_note_and_sections(client, seeded):
@@ -41,6 +41,19 @@ def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):
     page = client.get(f"/n/{seeded['world']}").text
     assert "<strong>Clave</strong>" in page
     assert "<script>alert(1)</script>" not in page
+
+
+def test_note_markdown_never_loads_external_images(client, engine, seeded):
+    # The body is written by the LLM from third-party text: no tracking pixels.
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["world"]).body = "Texto ![x](https://evil.test/t.png)"
+    assert "<img" not in client.get(f"/n/{seeded['world']}").text
+
+
+def test_rejects_foreign_host_header(client):
+    # DNS rebinding: a page on another domain that resolves to 127.0.0.1 must not read us.
+    assert client.get("/", headers={"host": "evil.test"}).status_code == 400
+    assert client.get("/", headers={"host": "localhost:8765"}).status_code == 200
 
 
 def test_original_link_redirects_and_marks_article_read(client, engine, seeded):

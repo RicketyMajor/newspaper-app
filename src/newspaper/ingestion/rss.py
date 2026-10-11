@@ -46,7 +46,9 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
     articles = []
     for entry in parsed.entries:
         title, url = clean_html(entry.get("title", "")), entry.get("link")
-        if not title or not url:
+        # Only web links: readers open them with webbrowser.open, which on Windows is
+        # os.startfile and would run a file path or protocol handler from a hostile feed.
+        if not title or not url or not url.lower().startswith(("http://", "https://")):
             continue
         stamp = entry.get("published_parsed") or entry.get("updated_parsed")  # UTC struct_time
         published = (
