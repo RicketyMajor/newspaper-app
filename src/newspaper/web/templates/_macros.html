@@ -31,8 +31,7 @@
 {% macro toggles(kind, obj) %}
 <div class="toggles">
   {% for flag, attr, label, glyph in FLAGS %}
-  <form method="post" action="/{{ kind }}/{{ obj.id }}/estado">
-    <input type="hidden" name="flag" value="{{ flag }}">
+  <form method="post" action="/{{ kind }}/{{ obj.id }}/estado?flag={{ flag }}">
     <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{% if obj[attr] %}<span aria-hidden="true">{{ glyph }} </span>{% endif %}{{ label }}</button>
   </form>
   {% endfor %}

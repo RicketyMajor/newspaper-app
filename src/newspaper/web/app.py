@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -110,7 +110,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         s: DB,
         kind: Literal["n", "a"],
         obj_id: int,
-        flag: Annotated[Literal["read", "favorite", "saved"], Form()],
+        flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
     ):
         try:
             queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag)

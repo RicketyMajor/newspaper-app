@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from sqlalchemy import func, select, text
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from .models import Article, Edition, EditionStatus, Note
@@ -109,10 +109,8 @@ def index_for_search(s: Session, kind: Kind, ref_id: int, title: str, body: str)
 
 
 def unindex(s: Session, kind: Kind, ref_ids: list[int]) -> None:
-    for ref_id in ref_ids:
-        s.execute(
-            text("DELETE FROM search WHERE kind = :k AND ref_id = :r"), {"k": kind, "r": ref_id}
-        )
+    stmt = text("DELETE FROM search WHERE kind = :k AND ref_id IN :ids")
+    s.execute(stmt.bindparams(bindparam("ids", expanding=True)), {"k": kind, "ids": ref_ids})
 
 
 def flagged(s: Session, flag: Flag) -> tuple[list[Note], list[Article]]:

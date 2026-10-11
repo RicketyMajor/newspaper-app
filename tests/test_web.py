@@ -69,16 +69,16 @@ def test_toggle_state_and_flag_lists(client, seeded):
     note, article = seeded["front"], seeded["articles"][1]
     back = {"referer": f"http://testserver/n/{note}"}
     response = client.post(
-        f"/n/{note}/estado", data={"flag": "favorite"}, headers=back, follow_redirects=False
+        f"/n/{note}/estado", params={"flag": "favorite"}, headers=back, follow_redirects=False
     )
     assert response.status_code == 303
     assert response.headers["location"] == f"/n/{note}"
-    client.post(f"/a/{article}/estado", data={"flag": "saved"})
+    client.post(f"/a/{article}/estado", params={"flag": "saved"})
 
     assert "Senado aprueba reforma" in client.get("/favoritos").text
     assert "Artículo 2" in client.get("/guardados").text
-    assert client.post(f"/n/{note}/estado", data={"flag": "bogus"}).status_code == 422
-    assert client.post("/n/999/estado", data={"flag": "read"}).status_code == 404
+    assert client.post(f"/n/{note}/estado", params={"flag": "bogus"}).status_code == 422
+    assert client.post("/n/999/estado", params={"flag": "read"}).status_code == 404
 
 
 def test_section_archive_search_and_status(client, seeded):

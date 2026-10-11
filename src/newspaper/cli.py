@@ -199,7 +199,3 @@ def status(ctx: click.Context) -> None:
             console.print(f"Última edición lista: {latest.edition_date} ({notes} notas)")
         else:
             console.print("Todavía no hay ediciones listas.")
-
-
-if __name__ == "__main__":
-    main()

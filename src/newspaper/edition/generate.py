@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import math
 import os
+from array import array
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
-import numpy as np
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -129,9 +129,8 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
 
 def _drop_notes(s: Session, edition: Edition) -> None:
     """Remove a previous attempt's notes (forced regeneration) and their search rows."""
-    for note in edition.notes:
-        queries.unindex(s, "note", [note.id])
-        queries.unindex(s, "article", [a.id for a in note.articles])
+    queries.unindex(s, "note", [n.id for n in edition.notes])
+    queries.unindex(s, "article", [a.id for n in edition.notes for a in n.articles])
     edition.notes.clear()
 
 
@@ -203,10 +202,10 @@ def _build_notes(
             batch = need[i : i + EMBED_BATCH]
             vectors = llm.embed([f"{a.title}\n\n{(a.content or '')[:1000]}" for a in batch])
             for a, vector in zip(batch, vectors, strict=True):
-                a.embedding = np.asarray(vector, dtype=np.float32).tobytes()
+                a.embedding = array("f", vector).tobytes()  # float32
         s.commit()  # keep extracted text and embeddings even if drafting fails later
 
-    vectors = [np.frombuffer(a.embedding, dtype=np.float32) for a in pending]
+    vectors = [array("f", a.embedding) for a in pending]
     groups = [
         sorted((pending[i] for i in idx), key=lambda a: a.when)
         for idx in cluster(vectors, config.edition.cluster_threshold)

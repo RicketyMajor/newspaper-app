@@ -18,8 +18,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 """
 
 
-def get_engine(db_path: str | Path) -> Engine:
-    db_path = Path(db_path).expanduser()
+def open_db(config: NewspaperConfig) -> Engine:
+    db_path = Path(config.storage.database_path).expanduser()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{db_path}")
 
@@ -31,16 +31,7 @@ def get_engine(db_path: str | Path) -> Engine:
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
-    return engine
-
-
-def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
         conn.execute(text(FTS_DDL))
-
-
-def open_db(config: NewspaperConfig) -> Engine:
-    engine = get_engine(config.storage.database_path)
-    init_db(engine)
     return engine
