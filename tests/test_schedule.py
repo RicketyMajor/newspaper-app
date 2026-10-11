@@ -79,3 +79,10 @@ def test_does_not_spawn_while_running_but_recovers_dead_run(config, engine, spaw
     with Session(engine) as s, s.begin():
         s.query(Edition).one().pid = 999_999_999
     assert gen.maybe_spawn_generate(config, now=AFTER_HOUR)
+
+
+def test_recovers_a_stale_run_even_if_its_pid_was_reused(config, engine, spawned):
+    add_today(engine, EditionStatus.generating, pid=os.getpid())
+    with Session(engine) as s, s.begin():
+        s.query(Edition).one().started_at = datetime(2026, 10, 9)
+    assert gen.maybe_spawn_generate(config, now=AFTER_HOUR)

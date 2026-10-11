@@ -60,6 +60,8 @@ class FakeLLM:
         return [VECTORS[t.split("\n")[0]] for t in texts]
 
     def draft(self, materials, language):
+        if self.down:
+            raise OllamaUnavailableError("Ollama no responde")
         titles = [title for _, title, _ in materials]
         if self.fail_titles & set(titles):
             raise OllamaError("draft: JSON inválido")
@@ -118,6 +120,13 @@ def test_ollama_down_fails_and_keeps_previous_edition(config, engine, seeded):
         assert (failed.status, failed.error) == (EditionStatus.failed, result.message)
 
 
+def test_ollama_stuck_on_every_note_fails_the_edition(config, monkeypatch):
+    monkeypatch.setattr("newspaper.edition.generate.FAILED_DRAFTS_IN_A_ROW", 2)
+    result = run(config, llm=FakeLLM(fail_titles=[SENADO[0], SENADO_BBC[0], ATACAMA[0]]))
+    assert result.status == "failed"
+    assert "dejó de responder" in result.message
+
+
 def test_all_feeds_down_fails(config):
     result = generate(config, http=http(feeds_ok=False), llm=FakeLLM(), now=NOW)
     assert result.status == "failed"
@@ -158,6 +167,15 @@ def test_ready_edition_is_kept_unless_forced(config, engine):
         [edition] = queries.list_editions(s)
         assert len(edition.notes) == 2
         assert len(queries.search(s, "lagarto")) == 1
+
+
+def test_failed_forced_regeneration_keeps_todays_edition(config, engine):
+    assert run(config).status == "ready"
+    assert run(config, llm=FakeLLM(down=True), force=True).status == "failed"
+    with Session(engine) as s:
+        edition = queries.latest_ready_edition(s)
+        assert edition.edition_date == TODAY
+        assert len(edition.notes) == 2
 
 
 def test_published_articles_are_not_repeated_next_day(config, engine):

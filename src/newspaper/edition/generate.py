@@ -29,12 +29,17 @@ from ..processing.cluster import cluster
 from ..processing.select import Selected, select_groups
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, Edition, EditionStatus, Note, note_articles
+from ..storage.models import Article, Edition, EditionStatus, Note, note_articles, utcnow
 
-STALE_AFTER = timedelta(hours=6)  # a `generating` row older than this is considered dead
+# ponytail: a `generating` row older than this is dead even if its pid was reused;
+# add a heartbeat column if a real run ever takes longer.
+STALE_AFTER = timedelta(hours=6)
 MAX_CHARS_PER_ARTICLE = 6000
 MAX_CHARS_PER_NOTE = 24000
 EMBED_BATCH = 32
+# ponytail: this many failed notes in a row means Ollama is hung (each waits timeout_seconds),
+# not a bad note; fail the edition instead of publishing it undrafted.
+FAILED_DRAFTS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
 
 
@@ -83,6 +88,24 @@ def pid_alive(pid: int | None) -> bool:
     return True
 
 
+def today_banner(status: str | None, error: str | None) -> str | None:
+    """Notice shown by both readers about today's edition."""
+    if status == EditionStatus.generating:
+        return "Preparando la edición de hoy…"
+    if status == EditionStatus.failed:
+        return f"La edición de hoy falló: {error}. Reinténtala con `newspaper generate`."
+    return None
+
+
+def running(edition: Edition) -> bool:
+    """Someone is generating this edition right now: recent claim, process still alive."""
+    return (
+        edition.status == EditionStatus.generating
+        and utcnow() - edition.started_at < STALE_AFTER
+        and pid_alive(edition.pid)
+    )
+
+
 def generate_command(config: NewspaperConfig) -> list[str]:
     cmd = [sys.executable, "-m", "newspaper"]
     if config.path:
@@ -98,9 +121,7 @@ def maybe_spawn_generate(config: NewspaperConfig, now: datetime | None = None) -
         return False
     with Session(open_db(config)) as s:
         today = queries.today_edition(s, local.date())
-        if today is not None and not (
-            today.status == EditionStatus.generating and not pid_alive(today.pid)
-        ):
+        if today is not None and (today.status != EditionStatus.generating or running(today)):
             return False
     if sys.platform == "win32":
         flags = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -139,12 +160,12 @@ def generate(
         log("Leyendo fuentes…")
         _ingest(engine, edition_id, config, http)
         drafts = _build_notes(
-            engine, config, http, llm, now.astimezone(UTC).replace(tzinfo=None), log
+            engine, edition_id, config, http, llm, now.astimezone(UTC).replace(tzinfo=None), log
         )
         _publish(engine, edition_id, drafts)
     except Exception as e:  # any failure: mark it, keep the previous edition readable
         message = str(e) or type(e).__name__
-        _finish(engine, edition_id, EditionStatus.failed, message)
+        _fail(engine, edition_id, message)
         return GenerateResult("failed", message, day)
     return GenerateResult("ready", f"Edición publicada con {len(drafts)} notas.", day)
 
@@ -162,8 +183,7 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
                 return edition.id, ""
             if edition.status == EditionStatus.ready and not force:
                 return None, "La edición de hoy ya está lista (usa --force para regenerarla)."
-            fresh = datetime.now(UTC).replace(tzinfo=None) - edition.started_at < STALE_AFTER
-            if edition.status == EditionStatus.generating and fresh and pid_alive(edition.pid):
+            if running(edition):
                 return None, busy
             # Compare-and-set on (status, started_at): only one process wins a takeover.
             claimed = s.execute(
@@ -176,17 +196,15 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
                 .values(
                     status=EditionStatus.generating,
                     pid=os.getpid(),
-                    started_at=datetime.now(UTC).replace(tzinfo=None),
+                    started_at=utcnow(),
                     finished_at=None,
                     error=None,
                     feed_errors=None,
                 )
                 .execution_options(synchronize_session=False)
             ).rowcount
-            if claimed != 1:
-                return None, busy
-            _drop_notes(s, edition)
-            return edition.id, ""
+            # The old notes stay until _publish replaces them, so a failed --force keeps them.
+            return (edition.id, "") if claimed == 1 else (None, busy)
     except (IntegrityError, OperationalError):  # lost the insert race / database locked
         return None, busy
 
@@ -224,6 +242,7 @@ def _ingest(engine: Engine, edition_id: int, config: NewspaperConfig, http: http
 
 def _build_notes(
     engine: Engine,
+    edition_id: int,
     config: NewspaperConfig,
     http: httpx.Client,
     llm: Ollama,
@@ -239,7 +258,11 @@ def _build_notes(
                 .where(
                     func.coalesce(Article.published_at, Article.fetched_at) >= since,
                     Article.source_name.in_([f.name for f in config.active_feeds]),
-                    Article.id.not_in(select(note_articles.c.article_id)),
+                    Article.id.not_in(  # published in another edition (a rerun reuses its own)
+                        select(note_articles.c.article_id)
+                        .join(Note, Note.id == note_articles.c.note_id)
+                        .where(Note.edition_id != edition_id)
+                    ),
                 )
                 .order_by(Article.id)
             )
@@ -277,10 +300,15 @@ def _build_notes(
         config.edition.max_notes_per_section,
     )
 
-    drafts = []
+    drafts, failed_in_a_row = [], 0
     for n, sel in enumerate(selected, 1):
         log(f"Redactando nota {n}/{len(selected)}…")
         drafts.append(_draft(llm, sel, config.general.language))
+        failed_in_a_row = 0 if drafts[-1].drafted else failed_in_a_row + 1
+        if failed_in_a_row == FAILED_DRAFTS_IN_A_ROW:
+            raise OllamaUnavailableError(
+                f"Ollama dejó de responder: {failed_in_a_row} notas seguidas sin redactar."
+            )
     return drafts
 
 
@@ -314,6 +342,8 @@ def _draft(llm: Ollama, sel: Selected, language: str) -> _NoteDraft:
 def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
     with Session(engine) as s, s.begin():
         edition = s.get(Edition, edition_id)
+        _drop_notes(s, edition)
+        s.flush()
         for rank, d in enumerate(drafts):
             articles = [s.get(Article, a.id) for a in d.selected.items]
             text = " ".join(filter(None, [d.headline, d.dek, d.body, d.differences]))
@@ -337,11 +367,12 @@ def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
             for a in articles:
                 queries.index_for_search(s, "article", a.id, a.title, a.content or a.summary)
         edition.status = EditionStatus.ready
-        edition.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        edition.finished_at = utcnow()
 
 
-def _finish(engine: Engine, edition_id: int, status: EditionStatus, error: str | None) -> None:
+def _fail(engine: Engine, edition_id: int, error: str) -> None:
     with Session(engine) as s, s.begin():
         edition = s.get(Edition, edition_id)
-        edition.status, edition.error = status, error
-        edition.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        # A failed regeneration keeps the notes it was going to replace, so stay readable.
+        edition.status = EditionStatus.ready if edition.notes else EditionStatus.failed
+        edition.error, edition.finished_at = error, utcnow()
