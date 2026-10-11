@@ -57,7 +57,8 @@ only one outlet reports (según <outlet>, …).
 - Opinion columns, analyses and interviews: say what they are and attribute every view to \
 its authors. Never present an opinion as a fact.
 - differences: when two or more outlets are present, explain where their coverage differs \
-(facts, figures, emphasis or contradictions), always naming each outlet. Empty string if \
+(facts, figures, emphasis or contradictions), always naming each outlet. Only real \
+differences: facts or figures the outlets share are never a difference. Empty string if \
 there is one outlet or no relevant difference.
 """
 
