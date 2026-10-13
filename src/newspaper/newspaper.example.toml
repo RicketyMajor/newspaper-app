@@ -28,6 +28,9 @@ database_path = "~/.newspaper/newspaper.db"
 # =============================================================================
 # Feeds — sections are taken from `section`, in order of first appearance.
 # Only type = "rss" is supported for now (RSS 2.0, Atom and RDF).
+# Optional rules per feed: regexes searched (case-insensitive) in each article's
+# URL and title. `exclude` drops matches; `route` moves them to another section
+# (first match wins; `exclude` goes first). They apply to newly fetched articles.
 # =============================================================================
 
 [[feeds]]
@@ -45,6 +48,8 @@ type = "rss"
 section = "Chile"
 language = "es"
 enabled = true
+exclude = ["/deportes/", "/magazine/", "/corporativo/"]  # sports, showbiz, sponsored
+route = { "/mundo/" = "Mundo" }
 
 [[feeds]]
 name = "BBC Mundo"
@@ -63,8 +68,24 @@ language = "es"
 enabled = true
 
 [[feeds]]
-name = "SINC — Ciencia"
-url = "https://www.agenciasinc.es/feed/Ciencia"
+name = "El País Ciencia"
+url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/ciencia/portada"
+type = "rss"
+section = "Ciencia"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "The Conversation ES"
+url = "https://theconversation.com/es/ciencia/articles.atom"
+type = "rss"
+section = "Ciencia"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "Xataka Ciencia"
+url = "https://www.xatakaciencia.com/feedburner.xml"
 type = "rss"
 section = "Ciencia"
 language = "es"

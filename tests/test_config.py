@@ -11,8 +11,12 @@ from newspaper.config.models import FeedConfig, NewspaperConfig
 
 def test_example_config_loads():
     cfg = load_config(EXAMPLE_CONFIG)
-    assert len(cfg.active_feeds) == 5
+    assert len(cfg.active_feeds) == 7
     assert cfg.sections == ["Chile", "Mundo", "Ciencia"]
+    assert not any("SINC" in f.name for f in cfg.feeds)  # its feeds froze in October 2026
+    coop = next(f for f in cfg.feeds if f.name == "Cooperativa")
+    assert coop.section_for("Papa", "https://www.cooperativa.cl/noticias/mundo/x") == "Mundo"
+    assert coop.section_for("Gol", "https://www.cooperativa.cl/noticias/deportes/x") is None
     assert cfg.general.timezone == "America/Santiago"
     assert cfg.path == EXAMPLE_CONFIG
 

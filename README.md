@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 newspaper config          # creates ~/.newspaper/newspaper.toml from the example and opens it
 ```
 
-The configuration is looked up in `./newspaper.toml`, then `~/.newspaper/newspaper.toml` (or pass `--config PATH`). The example ships five Spanish-language sources (CIPER, Cooperativa, BBC Mundo, DW Español, SINC) in three sections; replace them with your own.
+The configuration is looked up in `./newspaper.toml`, then `~/.newspaper/newspaper.toml` (or pass `--config PATH`). The example ships seven Spanish-language sources (CIPER, Cooperativa, BBC Mundo, DW Español, El País Ciencia, The Conversation, Xataka Ciencia) in three sections; replace them with your own.
 
 ## Use
 
@@ -70,6 +70,11 @@ Opening `read` or `web` after `edition_hour` starts today's edition in the backg
 
 - `cluster_threshold` (default `0.75`): raise it if unrelated stories get merged, lower it if the same event appears as several notes.
 - `front_page_size`, `max_notes_per_section`, `window_hours`.
+
+Per feed (`[[feeds]]`), optional rules: regexes searched (case-insensitive) in each article's URL and title, applied to newly fetched articles.
+
+- `exclude = ["/deportes/"]`: drop matching articles; they are never stored, extracted or written.
+- `route = { "/mundo/" = "Mundo" }`: move matching articles to another section (first match wins; `exclude` goes first).
 
 ## Development
 
