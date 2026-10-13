@@ -1,7 +1,8 @@
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class FeedConfig(BaseModel):
@@ -11,6 +12,28 @@ class FeedConfig(BaseModel):
     section: str
     language: str = "es"
     enabled: bool = True
+    # Regexes searched (case-insensitive) in each article's URL and title.
+    exclude: list[str] = []  # drop the article
+    route: dict[str, str] = {}  # pattern -> section; the first match wins
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> "FeedConfig":
+        for pattern in [*self.exclude, *self.route]:
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ValueError(f"{self.name}: patrón inválido {pattern!r} ({e})") from None
+        return self
+
+    def section_for(self, title: str, url: str) -> str | None:
+        """Section for one of this feed's articles; None when `exclude` drops it."""
+
+        def hit(pattern: str) -> bool:
+            return any(re.search(pattern, text, re.IGNORECASE) for text in (url, title))
+
+        if any(hit(p) for p in self.exclude):
+            return None
+        return next((s for p, s in self.route.items() if hit(p)), self.section)
 
 
 class GeneralConfig(BaseModel):

@@ -35,6 +35,8 @@ def append_feed(path: Path, feed: FeedConfig) -> None:
     # ponytail: json.dumps(ensure_ascii=False) emits a valid TOML basic string for these values.
     lines = ["", "[[feeds]]"]
     for key, value in feed.model_dump().items():
+        if value in ([], {}):  # rules left empty stay out of the file
+            continue
         lines.append(f"{key} = {json.dumps(value, ensure_ascii=False)}")
     current = path.read_text(encoding="utf-8")
     updated = current.rstrip("\n") + "\n" + "\n".join(lines) + "\n"

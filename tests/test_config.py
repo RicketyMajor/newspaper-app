@@ -44,6 +44,35 @@ def test_append_feed_escapes_and_stays_valid(tmp_path):
     append_feed(path, feed)
 
     assert load_config(path).feeds == [feed, feed]
+    text = path.read_text(encoding="utf-8")
+    assert "exclude" not in text and "route" not in text
+
+
+def test_feed_rules_pick_the_section():
+    feed = FeedConfig(
+        name="Coop",
+        url="https://x",
+        section="Chile",
+        exclude=["/deportes/", "^marcador virtual"],
+        route={"/mundo/": "Mundo", "/mundo/europa/": "Europa"},
+    )
+    pais, mundo = "https://c.cl/noticias/pais/x", "https://c.cl/noticias/mundo/europa/x"
+    assert feed.section_for("Senado aprueba", pais) == "Chile"
+    assert feed.section_for("Gol", "https://c.cl/noticias/DEPORTES/futbol/x") is None
+    assert feed.section_for("Marcador Virtual: U vs. Ñublense", pais) is None  # title
+    assert feed.section_for("Ciberataque", mundo) == "Mundo"  # first route wins
+    assert feed.section_for("Gol", "https://c.cl/noticias/mundo/deportes/x") is None
+
+
+def test_invalid_feed_pattern_is_reported(tmp_path):
+    path = tmp_path / "newspaper.toml"
+    path.write_text(
+        '[[feeds]]\nname = "Coop"\nurl = "https://x"\nsection = "Chile"\n'
+        'route = { "(mundo" = "Mundo" }\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match=r"Coop: patrón inválido '\(mundo'"):
+        load_config(path)
 
 
 def test_find_config_prefers_cwd_then_home(tmp_path, monkeypatch):
