@@ -50,6 +50,11 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
         # os.startfile and would run a file path or protocol handler from a hostile feed.
         if not title or not url or not url.lower().startswith(("http://", "https://")):
             continue
+        # Rules run here, the only place that knows the article's feed (names can repeat).
+        # ponytail: not retroactive; articles already stored keep their section.
+        section = feed.section_for(title, url)
+        if section is None:
+            continue
         stamp = entry.get("published_parsed") or entry.get("updated_parsed")  # UTC struct_time
         published = (
             datetime.fromtimestamp(calendar.timegm(stamp), UTC).replace(tzinfo=None)
@@ -62,7 +67,7 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
                 url=url,
                 summary=clean_html(entry.get("summary", "")),
                 source_name=feed.name,
-                section=feed.section,
+                section=section,
                 language=feed.language,
                 published_at=published,
             )

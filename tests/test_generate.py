@@ -7,13 +7,14 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from newspaper.ai.ollama import Draft, OllamaError, OllamaUnavailableError
 from newspaper.edition.generate import generate
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
-from newspaper.storage.models import Edition, EditionStatus
+from newspaper.storage.models import Article, Edition, EditionStatus
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)  # 12:00 in Santiago
@@ -113,6 +114,39 @@ def test_generate_publishes_a_ready_edition(config, engine):
         assert senado.read_minutes >= 1
         assert [h.id for h in queries.search(s, "lagarto")] == [atacama.articles[0].id]
         assert queries.search(s, "Nota Senado")[0].id == senado.id
+
+
+def test_feed_rules_exclude_and_route(config, engine):
+    config.feeds[0].route = {"atacama": "Ciencia"}
+    config.feeds[1].exclude = ["/SENADO"]  # case-insensitive, matches the URL
+    assert run(config).status == "ready"
+    with Session(engine) as s:
+        notes = queries.front_page(s, queries.latest_ready_edition(s).id)
+        assert {n.headline: n.section for n in notes} == {
+            f"Nota: {SENADO[0]}": "Chile",
+            f"Nota: {ATACAMA[0]}": "Ciencia",
+        }
+        assert s.scalar(select(Article).where(Article.url == SENADO_BBC[1])) is None  # not stored
+
+
+def test_same_named_feeds_keep_their_own_rules(config, engine):
+    # Two feeds of one outlet (counted as one source) with different sections and rules.
+    config.feeds[1] = config.feeds[1].model_copy(update={"name": "CIPER", "exclude": ["/senado"]})
+    assert run(config).status == "ready"
+    with Session(engine) as s:
+        notes = queries.front_page(s, queries.latest_ready_edition(s).id)
+        assert {n.headline: n.section for n in notes} == {
+            f"Nota: {SENADO[0]}": "Chile",
+            f"Nota: {ATACAMA[0]}": "Chile",
+        }
+
+
+def test_everything_excluded_is_no_news(config):
+    for feed in config.feeds:
+        feed.exclude = [r"\.test/"]
+    result = run(config)
+    assert result.status == "failed"
+    assert "Sin artículos nuevos" in result.message
 
 
 def test_failed_draft_publishes_excerpts(config, engine):
