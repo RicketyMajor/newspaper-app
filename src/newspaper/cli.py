@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import shutil
 import sys
 import tomllib
@@ -62,6 +63,18 @@ def _log_path(config: NewspaperConfig) -> Path:
     return Path(config.storage.database_path).expanduser().parent / "generate.log"
 
 
+def _log(config: NewspaperConfig, message: str, style: str = "dim") -> None:
+    """Show a progress message and append it, timestamped, to generate.log."""
+    # markup=False: titles and errors may contain "[/...]", which Rich would parse.
+    console.print(message, style=style, markup=False, highlight=False)
+    path = _log_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The scheduled tasks run under pythonw (no console): the log is the only trace they leave.
+    # ponytail: append-only, ~3 KB per edition; rotate it if it ever gets in the way.
+    with path.open("a", encoding="utf-8") as f:  # one entry per line (httpx errors span two)
+        f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {' '.join(message.splitlines())}\n")
+
+
 @main.command()
 @click.option("--force", is_flag=True, help="Regenera la edición de hoy aunque ya esté lista.")
 @click.pass_context
@@ -70,24 +83,33 @@ def generate(ctx: click.Context, force: bool) -> None:
     from .edition.generate import generate as run_generate  # heavy: keep the readers fast
 
     config = _load(ctx)
-    path = _log_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # The scheduled task runs under pythonw (no console): the log is the only trace it leaves.
-    # ponytail: append-only, ~3 KB per edition; rotate it if it ever gets in the way.
-    with path.open("a", encoding="utf-8") as log_file:
-
-        def log(message: str, style: str = "dim") -> None:
-            # markup=False: titles and errors may contain "[/...]", which Rich would parse.
-            console.print(message, style=style, markup=False, highlight=False)
-            log_file.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {message}\n")
-            log_file.flush()
-
-        log(f"Preparando la edición del {local_today(config):%d-%m-%Y}…", style="none")
-        result = run_generate(config, force=force, log=log)
-        color = {"ready": "green", "failed": "red", "skipped": "yellow"}[result.status]
-        log(result.message, style=color)
+    log = functools.partial(_log, config)
+    log(f"Preparando la edición del {local_today(config):%d-%m-%Y}…", style="none")
+    result = run_generate(config, force=force, log=log)
+    log(
+        result.message,
+        style={"ready": "green", "failed": "red", "skipped": "yellow"}[result.status],
+    )
     if result.status == "failed":
         raise SystemExit(1)
+
+
+@main.command()
+@click.pass_context
+def fetch(ctx: click.Context) -> None:
+    """Descarga las fuentes y guarda los artículos nuevos, sin redactar."""
+    from .edition.generate import ingest  # heavy: keep the readers fast
+    from .ingestion import rss
+
+    config = _load(ctx)
+    try:
+        new, errors = ingest(open_db(config), config, rss.make_client())
+    except RuntimeError as e:
+        _log(config, f"Descarga: {e}", style="red")
+        raise SystemExit(1) from e
+    for error in errors:
+        _log(config, f"Descarga: {error}", style="yellow")
+    console.print(f"Artículos nuevos: {new}")
 
 
 @main.command()

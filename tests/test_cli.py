@@ -1,6 +1,7 @@
 import re
 from datetime import date
 
+import httpx
 from click.testing import CliRunner
 from sqlalchemy.orm import Session
 
@@ -9,14 +10,52 @@ from newspaper.edition.generate import GenerateResult
 from newspaper.storage.models import Note
 
 
-def write_config(tmp_path, db_path):
+def write_config(tmp_path, db_path, extra=""):
     path = tmp_path / "newspaper.toml"
     path.write_text(
         f'[storage]\ndatabase_path = "{db_path.as_posix()}"\n\n'
-        '[[feeds]]\nname = "CIPER"\nurl = "https://ciper.test/feed"\nsection = "Chile"\n',
+        '[[feeds]]\nname = "CIPER"\nurl = "https://ciper.test/feed"\nsection = "Chile"\n' + extra,
         encoding="utf-8",
     )
     return path
+
+
+FEED = (
+    b'<?xml version="1.0"?><rss version="2.0"><channel><item><title>Senado</title>'
+    b"<link>https://ciper.test/senado</link><description>x</description></item></channel></rss>"
+)
+BBC = '\n[[feeds]]\nname = "BBC Mundo"\nurl = "https://bbc.test/rss"\nsection = "Mundo"\n'
+
+
+def serve_feeds(monkeypatch):
+    def handler(request):
+        if str(request.url) == "https://ciper.test/feed":
+            return httpx.Response(200, content=FEED)
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("newspaper.ingestion.rss.make_client", lambda: client)
+
+
+def test_fetch_stores_new_articles_without_logging(tmp_path, monkeypatch):
+    serve_feeds(monkeypatch)
+    config = write_config(tmp_path, tmp_path / "newspaper.db")
+    first = CliRunner().invoke(main, ["--config", str(config), "fetch"])
+    second = CliRunner().invoke(main, ["--config", str(config), "fetch"])
+
+    assert (first.exit_code, second.exit_code) == (0, 0), first.output + second.output
+    assert "Artículos nuevos: 1" in first.output and "Artículos nuevos: 0" in second.output
+    assert not (tmp_path / "generate.log").exists()  # only errors are logged
+
+
+def test_fetch_logs_a_failing_feed(tmp_path, monkeypatch):
+    serve_feeds(monkeypatch)
+    config = write_config(tmp_path, tmp_path / "newspaper.db", BBC)
+    result = CliRunner().invoke(main, ["--config", str(config), "fetch"])
+
+    assert result.exit_code == 0, result.output
+    [line] = (tmp_path / "generate.log").read_text(encoding="utf-8").splitlines()
+    assert re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  Descarga: BBC Mundo: ", line)
 
 
 def test_generate_appends_its_progress_to_a_log_next_to_the_database(tmp_path, monkeypatch):
