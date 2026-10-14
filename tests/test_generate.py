@@ -150,6 +150,13 @@ def test_everything_excluded_is_no_news(config):
     assert "Sin artículos nuevos" in result.message
 
 
+def test_generate_logs_how_many_articles_fell_back_to_the_excerpt(config):
+    lines = []
+    assert run(config, log=lines.append).status == "ready"
+    # Only the CIPER senado page exists in the fixtures; the other two keep their RSS excerpt.
+    assert "  2 de 3 sin texto completo (se usa el extracto)" in lines
+
+
 def test_ingest_skips_urls_already_stored(config, engine):
     assert ingest(engine, config, http()) == (3, [])
     assert ingest(engine, config, http()) == (0, [])  # e.g. `fetch` and `generate` at 06:00

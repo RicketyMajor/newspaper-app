@@ -207,6 +207,8 @@ def _build_notes(
         missing = [a for a in pending if a.content is None]
         log(f"Extrayendo texto de {len(missing)} artículos…")
         texts = extract_many(http, [a.url for a in missing])
+        if failed := sum(text is None for text in texts.values()):
+            log(f"  {failed} de {len(missing)} sin texto completo (se usa el extracto)")
         for a in missing:
             text = texts[a.url]
             a.content, a.content_source = (

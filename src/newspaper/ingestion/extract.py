@@ -24,4 +24,9 @@ def extract_text(client: httpx.Client, url: str) -> str | None:
 
 def extract_many(client: httpx.Client, urls: list[str], workers: int = 8) -> dict[str, str | None]:
     with ThreadPoolExecutor(workers) as pool:
-        return dict(zip(urls, pool.map(lambda url: extract_text(client, url), urls), strict=True))
+        texts = dict(zip(urls, pool.map(lambda url: extract_text(client, url), urls), strict=True))
+    # A busy site drops some parallel requests (CIPER lost 3 of 5 with 144 at once, 2026-10-14):
+    # retry those one at a time. ponytail: a paywalled page fails twice, a second or two each.
+    for url in [u for u, text in texts.items() if text is None]:
+        texts[url] = extract_text(client, url)
+    return texts

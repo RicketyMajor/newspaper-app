@@ -107,7 +107,7 @@ type = "rss"
 section = "Tecnología"
 language = "es"
 enabled = true
-exclude = ["/seleccion/"]  # shopping picks and deals
+exclude = ["/seleccion/", "/xataka/"]  # shopping picks and deals; self-promotion
 
 [[feeds]]
 name = "Genbeta"

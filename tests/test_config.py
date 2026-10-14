@@ -16,6 +16,7 @@ def test_example_config_loads():
     assert cfg.edition.section_limits == {"Tecnología": 5, "Cultura": 5}
     xataka = next(f for f in cfg.feeds if f.name == "Xataka")
     assert xataka.section_for("Oferta", "https://www.xataka.com/seleccion/x") is None
+    assert xataka.section_for("Premios", "https://www.xataka.com/xataka/x") is None  # self-promo
     assert not any("SINC" in f.name for f in cfg.feeds)  # its feeds froze in October 2026
     coop = next(f for f in cfg.feeds if f.name == "Cooperativa")
     assert coop.section_for("Papa", "https://www.cooperativa.cl/noticias/mundo/x") == "Mundo"

@@ -78,6 +78,23 @@ def test_extract_returns_none_on_errors_and_short_pages():
     }
 
 
+def test_extract_many_retries_failed_pages_one_at_a_time():
+    # A busy site drops some of the parallel requests (CIPER lost 3 of 5 with 144 at once).
+    html = (FIXTURES / "article.html").read_text(encoding="utf-8")
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        first_try = calls.count(str(request.url)) == 1
+        return httpx.Response(503) if first_try else httpx.Response(200, html=html)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    texts = extract_many(client, ["https://ciper.test/a", "https://ciper.test/b"])
+
+    assert all(texts.values())
+    assert len(calls) == 4
+
+
 def test_parse_keeps_only_web_links():
     # os.startfile (behind webbrowser.open on Windows) would run a file path or protocol handler.
     links = ["file:///C:/x.exe", r"\\evil\share\x.exe", "ms-msdt:id", "https://ok.test/a"]
