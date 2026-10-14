@@ -67,6 +67,30 @@ differences: facts or figures the outlets share are never a difference. Empty st
 there is one outlet or no relevant difference.
 """
 
+# ponytail: fixed catch-all topics so the model never forces a story into the reader's list.
+# Without them, wars landed in "tech business" and hurricanes in "sports" (2026-10-14).
+NEUTRAL_TOPICS = (
+    "política y gobierno",
+    "justicia, tribunales y corrupción",
+    "geopolítica, diplomacia y guerras",
+    "economía, empresas y trabajo",
+    "clima, desastres naturales y medio ambiente",
+    "salud y medicina",
+    "otras ciencias: biología, geología, paleontología",
+    "historia y arqueología",
+    "sociedad, educación y religión",
+)
+NO_TOPIC = "ninguno"
+# Spanish like the topics; validated on 273 articles (~96 % right on "like", ~89 % on "dislike").
+CLASSIFY_PROMPT = """\
+Clasificas noticias por tema. Elige el tema de la lista que sea el asunto principal de la \
+noticia; si encaja en varios, el que aparece primero en la lista. Si no encaja en ninguno, \
+"ninguno". Que la noticia mencione de pasada un tema no basta: tiene que tratar de él.
+
+Temas:
+{topics}
+"""
+
 
 _QUOTED = re.compile(r'"([^"\n]*)"')
 _OUTLET_TAG = re.compile(r"^\[[^\]\n]{1,40}\]\s*")
@@ -142,3 +166,34 @@ class Ollama:
         # It mimics the material's outlet headers, and sometimes opens with a title anyway.
         draft.body = _LEADING_HEADING.sub("", _OUTLET_TAG.sub("", draft.body))
         return draft
+
+    def classify(self, text: str, topics: list[str]) -> str:
+        """The topic `text` is mainly about, from `topics` (the earlier one when several fit),
+        or NO_TOPIC."""
+        choices = [*topics, NO_TOPIC]
+        system = CLASSIFY_PROMPT.format(topics="\n".join(f"- {t}" for t in topics))
+        data = self._post(
+            "/api/chat",
+            {
+                "model": self.cfg.model,
+                "stream": False,
+                "format": {
+                    "type": "object",
+                    "properties": {"tema": {"enum": choices}},
+                    "required": ["tema"],
+                },
+                # Same num_ctx as draft: a different one makes Ollama reload the model.
+                "options": {"temperature": 0, "num_ctx": NUM_CTX},
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": text},
+                ],
+            },
+        )
+        try:
+            topic = json.loads(data["message"]["content"])["tema"]
+        except (KeyError, TypeError, json.JSONDecodeError) as e:
+            raise OllamaError(f"classify: JSON inválido ({e})") from e
+        if topic not in choices:
+            raise OllamaError(f"classify: tema desconocido ({topic!r})")
+        return topic

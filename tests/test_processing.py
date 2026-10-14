@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from newspaper.ai.ollama import Ollama, OllamaError, OllamaUnavailableError
+from newspaper.ai.ollama import NO_TOPIC, Ollama, OllamaError, OllamaUnavailableError
 from newspaper.config.models import LLMConfig
 from newspaper.processing.cluster import cluster
 from newspaper.processing.select import select_groups
@@ -118,6 +118,32 @@ def test_draft_with_invalid_json_is_a_note_level_error():
 
     with pytest.raises(OllamaError) as info:
         ollama_with(handler).draft([("CIPER", "t", "x")], "es")
+    assert not isinstance(info.value, OllamaUnavailableError)
+
+
+def test_classify_sends_the_topics_in_order_and_returns_the_choice():
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": '{"tema": "K-pop"}'}})
+
+    topics = ["K-pop", "música", "política y gobierno"]
+    assert ollama_with(handler).classify("BTS llega a Chile", topics) == "K-pop"
+    assert seen["format"]["properties"]["tema"]["enum"] == [*topics, NO_TOPIC]
+    assert seen["options"] == {"temperature": 0, "num_ctx": 8192}
+    system = seen["messages"][0]["content"]
+    assert system.index("- K-pop") < system.index("- música")  # earlier wins on overlap
+    assert seen["messages"][1]["content"] == "BTS llega a Chile"
+
+
+@pytest.mark.parametrize("content", ["no json", '{"tema": "otra cosa"}', "{}"])
+def test_classify_rejects_unusable_answers(content):
+    def handler(request):
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    with pytest.raises(OllamaError) as info:
+        ollama_with(handler).classify("x", ["música"])
     assert not isinstance(info.value, OllamaUnavailableError)
 
 
