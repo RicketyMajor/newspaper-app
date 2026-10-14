@@ -11,11 +11,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from newspaper.ai.ollama import Draft, OllamaError, OllamaUnavailableError
+from newspaper.ai.ollama import NEUTRAL_TOPICS, Draft, OllamaError, OllamaUnavailableError
+from newspaper.config.models import InterestsConfig
 from newspaper.edition.generate import _capitalize, _draft, generate, ingest
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
-from newspaper.storage.models import Article, Edition, EditionStatus
+from newspaper.storage.models import Article, Edition, EditionStatus, Note
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)  # 12:00 in Santiago
@@ -89,6 +90,56 @@ class FlakyLLM(FakeLLM):
 
 def run(config, llm=None, **kwargs):
     return generate(config, http=http(), llm=llm or FakeLLM(), now=NOW, **kwargs)
+
+
+class TopicLLM(FakeLLM):
+    """Classifies by the titles it is given: Atacama is nature, everything else politics."""
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.error, self.topic_lists = error, []
+
+    def classify(self, text, topics):
+        self.topic_lists.append(topics)
+        if self.error:
+            raise self.error
+        return "naturaleza" if ATACAMA[0] in text else "política"
+
+
+def test_interests_order_the_edition_and_are_stored(config, engine):
+    config.interests = InterestsConfig(like=["naturaleza"], dislike=["política"])
+    llm = TopicLLM()
+    assert run(config, llm).status == "ready"
+    assert llm.topic_lists[0] == ["política", "naturaleza", *NEUTRAL_TOPICS]  # "no" wins
+    with Session(engine) as s:
+        notes = s.scalars(select(Note).order_by(Note.rank)).all()
+        got = [(n.headline, n.is_front, n.interest, n.interest_liked) for n in notes]
+    assert got == [
+        (f"Nota: {ATACAMA[0]}", True, "naturaleza", True),
+        (f"Nota: {SENADO[0]}", False, "política", False),  # 2 outlets, still off the front
+    ]
+
+
+def test_a_failed_classification_leaves_the_group_neutral(config, engine):
+    config.interests = InterestsConfig(dislike=["política"])
+    lines = []
+    llm = TopicLLM(error=OllamaError("classify: JSON inválido"))
+    assert run(config, llm, log=lines.append).status == "ready"
+    with Session(engine) as s:
+        assert {n.interest for n in s.scalars(select(Note))} == {None}
+    assert any(line.startswith("  Sin clasificar") for line in lines)
+
+
+def test_ollama_down_while_classifying_fails_the_edition(config):
+    config.interests = InterestsConfig(like=["naturaleza"])
+    llm = TopicLLM(error=OllamaUnavailableError("Ollama no responde"))
+    assert run(config, llm).status == "failed"
+
+
+def test_without_interests_nothing_is_classified(config):
+    llm = TopicLLM()
+    assert run(config, llm).status == "ready"
+    assert llm.topic_lists == []
 
 
 def test_generate_publishes_a_ready_edition(config, engine):

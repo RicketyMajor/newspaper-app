@@ -20,12 +20,12 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from ..ai.ollama import Ollama, OllamaError, OllamaUnavailableError
-from ..config.models import NewspaperConfig
+from ..ai.ollama import NEUTRAL_TOPICS, Ollama, OllamaError, OllamaUnavailableError
+from ..config.models import InterestsConfig, NewspaperConfig
 from ..ingestion.extract import extract_many
 from ..ingestion.rss import fetch_feed, make_client
 from ..processing.cluster import cluster
-from ..processing.select import Selected, select_groups
+from ..processing.select import Interest, Selected, select_groups
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article, Edition, EditionStatus, Note, note_articles, utcnow
@@ -34,6 +34,7 @@ from .today import local_today, running
 MAX_CHARS_PER_ARTICLE = 6000
 MAX_CHARS_PER_NOTE = 24000
 EMBED_BATCH = 32
+CLASSIFY_CHARS = 300  # of the group's first article, after its titles
 # ponytail: this many failed notes in a row means Ollama is hung (each waits timeout_seconds),
 # not a bad note; fail the edition instead of publishing it undrafted.
 FAILED_DRAFTS_IN_A_ROW = 3
@@ -229,12 +230,14 @@ def _build_notes(
         sorted((pending[i] for i in idx), key=lambda a: a.when)
         for idx in cluster(vectors, config.edition.cluster_threshold)
     ]
+    interests = _classify(llm, groups, config.interests, log)
     selected = select_groups(
         groups,
         config.sections,
         config.edition.front_page_size,
         config.edition.max_notes_per_section,
         config.edition.section_limits,
+        interests=interests,
     )
 
     drafts, failed_in_a_row = [], 0
@@ -247,6 +250,37 @@ def _build_notes(
                 f"Ollama dejó de responder: {failed_in_a_row} notas seguidas sin redactar."
             )
     return drafts
+
+
+def _classify(
+    llm: Ollama,
+    groups: list[list[Article]],
+    interests: InterestsConfig,
+    log: Callable[[str], None],
+) -> list[Interest | None]:
+    """Each group's interest (None: neutral), one short question to the model per group."""
+    if not (interests.like or interests.dislike):
+        return [None] * len(groups)
+    topics = [*interests.dislike, *interests.like, *NEUTRAL_TOPICS]  # "no" first: it wins
+    log(f"Clasificando {len(groups)} grupos por interés…")
+    found: list[Interest | None] = []
+    for group in groups:
+        lead = " ".join((group[0].content or group[0].summary or "").split())
+        text = "\n".join(a.title for a in group[:3]) + "\n\n" + lead[:CLASSIFY_CHARS]
+        try:
+            topic = llm.classify(text, topics)
+        except OllamaUnavailableError:
+            raise
+        except OllamaError as e:
+            log(f"  Sin clasificar ({group[0].title}): {e}")
+            topic = None
+        if topic in interests.dislike:
+            found.append(Interest(topic, liked=False))
+        elif topic in interests.like:
+            found.append(Interest(topic, liked=True))
+        else:
+            found.append(None)
+    return found
 
 
 def _materials(articles: list[Article]) -> list[tuple[str, str, str]]:
@@ -305,6 +339,7 @@ def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
         for rank, d in enumerate(drafts):
             articles = [s.get(Article, a.id) for a in d.selected.items]
             text = " ".join(filter(None, [d.headline, d.dek, d.body, d.differences]))
+            interest = d.selected.interest
             note = Note(
                 section=d.selected.section,
                 rank=rank,
@@ -317,6 +352,8 @@ def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
                 excerpt_only=all(a.content_source == "excerpt" for a in articles),
                 drafted=d.drafted,
                 read_minutes=max(1, math.ceil(len(text.split()) / WORDS_PER_MINUTE)),
+                interest=interest.phrase if interest else None,
+                interest_liked=interest.liked if interest else None,
                 articles=articles,
             )
             edition.notes.append(note)
