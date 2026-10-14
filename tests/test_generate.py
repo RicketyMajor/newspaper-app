@@ -4,6 +4,7 @@ import sys
 from datetime import UTC, date, datetime
 from email.utils import format_datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -11,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from newspaper.ai.ollama import Draft, OllamaError, OllamaUnavailableError
-from newspaper.edition.generate import generate
+from newspaper.edition.generate import _capitalize, _draft, generate
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Article, Edition, EditionStatus
@@ -174,6 +175,67 @@ def test_a_failed_draft_is_retried_once(config, engine):
     assert run(config, llm=FlakyLLM()).status == "ready"
     with Session(engine) as s:
         assert all(note.drafted for note in queries.latest_ready_edition(s).notes)
+
+
+def one_article_selection():
+    article = SimpleNamespace(
+        source_name="Cooperativa", title="Lluvias en Santiago", content="Texto.", summary="Res."
+    )
+    return SimpleNamespace(items=[article])
+
+
+class ScriptedLLM:
+    """Answers each draft call with the next scripted Draft, or raises it if it's an error."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+
+    def draft(self, materials, language):
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+LOWER = Draft("suspenden clases en santiago", "las lluvias siguen.", "tras la lluvia…", "")
+UPPER = Draft("Suspenden clases en Santiago", "Las lluvias siguen.", "Tras la lluvia…", "")
+
+
+def test_lowercase_headline_is_redrafted():
+    llm = ScriptedLLM(LOWER, UPPER)
+    note = _draft(llm, one_article_selection(), "es", log=lambda _msg: None)
+    assert (note.headline, note.drafted, llm.answers) == (UPPER.headline, True, [])
+
+
+@pytest.mark.parametrize("retry", [LOWER, OllamaError("draft: JSON inválido")])
+def test_lowercase_draft_is_published_capitalized_if_the_retry_does_not_help(retry):
+    note = _draft(ScriptedLLM(LOWER, retry), one_article_selection(), "es", log=lambda _m: None)
+    assert (note.headline, note.dek, note.body, note.drafted) == (
+        "Suspenden clases en santiago",
+        "Las lluvias siguen.",
+        "Tras la lluvia…",
+        True,
+    )
+
+
+def test_capitalize_skips_leading_punctuation_and_leaves_numbers_alone():
+    assert _capitalize("¿qué pasó?") == "¿Qué pasó?"
+    assert _capitalize("«la nota»") == "«La nota»"
+    assert _capitalize("30 premios en 125 años") == "30 premios en 125 años"
+    assert _capitalize("`print()` falla en Python 4") == "`print()` falla en Python 4"  # code span
+    assert _capitalize("") == ""
+
+
+def test_each_failed_attempt_is_logged_with_its_cause():
+    lines = []
+    llm = ScriptedLLM(OllamaError("Ollama 500: token repeat limit reached"), Draft("", "", "", ""))
+    note = _draft(llm, one_article_selection(), "es", log=lines.append)
+    assert note.drafted is False
+    assert lines == [
+        "  Intento 1 fallido (Lluvias en Santiago): Ollama 500: token repeat limit reached",
+        "  Intento 2 fallido (Lluvias en Santiago): titular o cuerpo vacío",
+        "  Publicada sin redactar (Lluvias en Santiago)",
+    ]
 
 
 def test_ollama_stuck_on_every_note_fails_the_edition(config, monkeypatch):

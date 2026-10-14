@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from array import array
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +37,19 @@ EMBED_BATCH = 32
 # not a bad note; fail the edition instead of publishing it undrafted.
 FAILED_DRAFTS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
+# The first letter after any leading punctuation (¿, «, quotes); a leading digit or a Markdown
+# code span (`) means none.
+_FIRST_LETTER = re.compile(r"^([^\w`]*)([^\W\d_])")
+
+
+def _starts_lower(text: str) -> bool:
+    m = _FIRST_LETTER.match(text)
+    return m is not None and m[2].islower()
+
+
+def _capitalize(text: str) -> str:
+    # ponytail: a brand like "iPhone" would become "IPhone"; skip known ones if it shows up.
+    return _FIRST_LETTER.sub(lambda m: m[1] + m[2].upper(), text, count=1)
 
 
 @dataclass
@@ -220,7 +234,7 @@ def _build_notes(
     drafts, failed_in_a_row = [], 0
     for n, sel in enumerate(selected, 1):
         log(f"Redactando nota {n}/{len(selected)}…")
-        drafts.append(_draft(llm, sel, config.general.language))
+        drafts.append(_draft(llm, sel, config.general.language, log))
         failed_in_a_row = 0 if drafts[-1].drafted else failed_in_a_row + 1
         if failed_in_a_row == FAILED_DRAFTS_IN_A_ROW:
             raise OllamaUnavailableError(
@@ -240,21 +254,41 @@ def _materials(articles: list[Article]) -> list[tuple[str, str, str]]:
     return out
 
 
-def _draft(llm: Ollama, sel: Selected, language: str) -> _NoteDraft:
+def _draft(llm: Ollama, sel: Selected, language: str, log: Callable[[str], None]) -> _NoteDraft:
     single = len({a.source_name for a in sel.items}) == 1
-    for _attempt in range(2):  # sampling sometimes yields bad JSON or an empty body; retry once
+    title = sel.items[0].title
+    best = None
+    # Sampling sometimes yields bad JSON, an empty body or a lowercase headline: retry once.
+    for attempt in (1, 2):
         try:
             d = llm.draft(_materials(sel.items), language)
         except OllamaUnavailableError:
             raise
-        except OllamaError:
+        except OllamaError as e:
+            log(f"  Intento {attempt} fallido ({title}): {e}")
             continue
-        if d.headline and d.body:
-            differences = None if single or not d.differences else d.differences
-            return _NoteDraft(sel, d.headline, d.dek, d.body, differences, True)
-    # Fallback: the original headlines and excerpts, clearly labelled as not drafted.
-    body = "\n\n".join(f"**{a.source_name}**: {a.summary or a.content}" for a in sel.items)
-    return _NoteDraft(sel, sel.items[0].title, "", body, None, False)
+        if not (d.headline and d.body):
+            log(f"  Intento {attempt} fallido ({title}): titular o cuerpo vacío")
+            continue
+        if not _starts_lower(d.headline):
+            best = d
+            break
+        log(f"  Intento {attempt}: titular en minúscula ({title})")
+        best = best or d  # keep the first one in case the retry does no better
+    if best is None:
+        log(f"  Publicada sin redactar ({title})")
+        # Fallback: the original headlines and excerpts, clearly labelled as not drafted.
+        body = "\n\n".join(f"**{a.source_name}**: {a.summary or a.content}" for a in sel.items)
+        return _NoteDraft(sel, sel.items[0].title, "", body, None, False)
+    differences = None if single or not best.differences else best.differences
+    return _NoteDraft(
+        sel,
+        _capitalize(best.headline),
+        _capitalize(best.dek),
+        _capitalize(best.body),
+        differences,
+        True,
+    )
 
 
 def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
