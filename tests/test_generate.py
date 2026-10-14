@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from newspaper.ai.ollama import Draft, OllamaError, OllamaUnavailableError
-from newspaper.edition.generate import _capitalize, _draft, generate
+from newspaper.edition.generate import _capitalize, _draft, generate, ingest
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Article, Edition, EditionStatus
@@ -148,6 +148,16 @@ def test_everything_excluded_is_no_news(config):
     result = run(config)
     assert result.status == "failed"
     assert "Sin artículos nuevos" in result.message
+
+
+def test_ingest_skips_urls_already_stored(config, engine):
+    assert ingest(engine, config, http()) == (3, [])
+    assert ingest(engine, config, http()) == (0, [])  # e.g. `fetch` and `generate` at 06:00
+
+
+def test_ingest_stores_an_article_listed_by_two_feeds_once(config, engine):
+    config.feeds[1].url = config.feeds[0].url
+    assert ingest(engine, config, http()) == (2, [])
 
 
 def test_failed_draft_publishes_excerpts(config, engine):

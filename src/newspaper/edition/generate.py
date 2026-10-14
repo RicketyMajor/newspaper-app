@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from sqlalchemy import Engine, func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -90,7 +91,9 @@ def generate(
     llm = llm or Ollama(config.llm)
     try:
         log("Leyendo fuentes…")
-        _ingest(engine, edition_id, config, http)
+        _, errors = ingest(engine, config, http)
+        with Session(engine) as s, s.begin():
+            s.get(Edition, edition_id).feed_errors = "\n".join(errors) or None
         drafts = _build_notes(
             engine, edition_id, config, http, llm, now.astimezone(UTC).replace(tzinfo=None), log
         )
@@ -148,7 +151,10 @@ def _drop_notes(s: Session, edition: Edition) -> None:
     edition.notes.clear()
 
 
-def _ingest(engine: Engine, edition_id: int, config: NewspaperConfig, http: httpx.Client) -> None:
+def ingest(engine: Engine, config: NewspaperConfig, http: httpx.Client) -> tuple[int, list[str]]:
+    """Fetch every active feed and store its new articles: (how many were new, feed errors).
+    Safe while another process ingests (`fetch` and `generate` may overlap): a URL already
+    stored, or listed twice, is skipped."""
     feeds = config.active_feeds
     if not feeds:
         raise RuntimeError("No hay fuentes activas en newspaper.toml.")
@@ -160,15 +166,12 @@ def _ingest(engine: Engine, edition_id: int, config: NewspaperConfig, http: http
             errors.append(f"{feed.name}: {e}")
     if len(errors) == len(feeds):
         raise RuntimeError("Ninguna fuente respondió.\n" + "\n".join(errors))
-
-    with Session(engine) as s, s.begin():
-        s.get(Edition, edition_id).feed_errors = "\n".join(errors) or None
-        urls = [raw.url for raw in fetched]
-        known = set(s.scalars(select(Article.url).where(Article.url.in_(urls))))
-        for raw in fetched:
-            if raw.url not in known:
-                known.add(raw.url)
-                s.add(Article(**vars(raw)))
+    if not fetched:
+        return 0, errors
+    insert = sqlite_insert(Article.__table__).on_conflict_do_nothing(index_elements=["url"])
+    with engine.begin() as conn:
+        new = conn.execute(insert, [vars(raw) for raw in fetched]).rowcount
+    return new, errors
 
 
 def _build_notes(
