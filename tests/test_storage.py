@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import date
 
 import pytest
@@ -5,7 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from newspaper.storage import queries
+from newspaper.storage import database, queries
+from newspaper.storage.database import open_db
 from newspaper.storage.models import Edition, EditionStatus, Note, note_articles
 
 from .conftest import add_article
@@ -80,3 +82,29 @@ def test_deleting_notes_cascades_links(engine, seeded):
         s.delete(s.get(Note, seeded["front"]))
     with Session(engine) as s:
         assert s.scalar(select(func.count()).select_from(note_articles)) == 1
+
+
+def test_open_db_adds_the_interest_columns_to_an_older_database(config):
+    path = config.storage.database_path
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, headline TEXT)")
+    old.execute("INSERT INTO notes (headline) VALUES ('Antigua')")
+    old.commit()
+    old.close()
+
+    open_db(config)
+    engine = open_db(config)  # twice: nothing left to add
+
+    with engine.connect() as c:
+        columns = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(notes)")}
+        row = c.exec_driver_sql("SELECT headline, interest, interest_liked FROM notes").one()
+    assert {"interest", "interest_liked"} <= columns
+    assert tuple(row) == ("Antigua", None, None)
+
+
+def test_open_db_tolerates_a_column_another_process_just_added(config, monkeypatch):
+    open_db(config)
+    # SQLite column names ignore case: "INTEREST" looks missing here but already exists, as
+    # when fetch and generate both migrate at boot.
+    monkeypatch.setitem(database.ADDED_COLUMNS, "notes", {"INTEREST": "TEXT"})
+    open_db(config)

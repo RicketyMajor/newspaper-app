@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.exc import OperationalError
 
 from ..config.models import NewspaperConfig
 from .models import Base
@@ -16,6 +17,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
     tokenize = 'unicode61 remove_diacritics 2'
 )
 """
+# ponytail: hand-written migration for columns added after the first release; move to a
+# migration tool (Alembic) if a third change like this shows up.
+ADDED_COLUMNS = {"notes": {"interest": "TEXT", "interest_liked": "BOOLEAN"}}
 
 
 def open_db(config: NewspaperConfig) -> Engine:
@@ -34,4 +38,14 @@ def open_db(config: NewspaperConfig) -> Engine:
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
         conn.execute(text(FTS_DDL))
+        for table, columns in ADDED_COLUMNS.items():
+            have = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, sql_type in columns.items():
+                if name in have:
+                    continue
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+                except OperationalError as e:  # fetch and generate can start together at boot
+                    if "duplicate column" not in str(e):
+                        raise
     return engine

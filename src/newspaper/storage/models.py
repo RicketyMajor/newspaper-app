@@ -99,6 +99,8 @@ class Note(ReadingState, Base):
     excerpt_only: Mapped[bool] = mapped_column(default=False)
     drafted: Mapped[bool] = mapped_column(default=True)
     read_minutes: Mapped[int] = mapped_column(default=1)
+    interest: Mapped[str | None] = mapped_column(Text)  # the reader's phrase the model picked
+    interest_liked: Mapped[bool | None]  # True: "sí", False: "no"
 
     edition: Mapped[Edition] = relationship(back_populates="notes")
     articles: Mapped[list[Article]] = relationship(
