@@ -8,7 +8,7 @@ import pytest
 from newspaper.ai.ollama import NO_TOPIC, Ollama, OllamaError, OllamaUnavailableError
 from newspaper.config.models import LLMConfig
 from newspaper.processing.cluster import cluster
-from newspaper.processing.select import select_groups
+from newspaper.processing.select import Interest, select_groups
 
 
 def ollama_with(handler) -> Ollama:
@@ -201,3 +201,35 @@ def test_select_breaks_outlet_ties_by_article_count_before_recency():
     fresh = [art("DW", "Mundo", 9)]
     selected = select_groups([fresh, quake], ["Mundo"], front_size=0, per_section=1)
     assert [s.items for s in selected] == [quake]
+
+
+def test_select_puts_liked_first_among_equal_coverage_and_disliked_last_off_the_front():
+    pop = [art("Culto", "Cultura", 23)]  # newest, but "no"
+    books = [art("Guardian", "Cultura", 1)]  # oldest, "sí"
+    film = [art("El País", "Cultura", 12)]  # neutral
+    selected = select_groups(
+        [pop, books, film],
+        ["Cultura"],
+        front_size=3,
+        per_section=5,
+        interests=[Interest("K-pop", False), Interest("libros", True), None],
+    )
+    assert [(s.items, s.is_front, s.interest) for s in selected] == [
+        (books, True, Interest("libros", True)),
+        (film, True, None),
+        (pop, False, Interest("K-pop", False)),  # never on the front page, even with room
+    ]
+
+
+def test_select_keeps_outlet_count_above_a_liked_topic_and_drops_disliked_first():
+    covered = [art("BBC Mundo", "Mundo", 1), art("DW", "Mundo", 2)]
+    liked = [art("DW", "Mundo", 9)]
+    gossip = [art("DW", "Mundo", 10)]
+    selected = select_groups(
+        [gossip, liked, covered],
+        ["Mundo"],
+        front_size=1,
+        per_section=1,
+        interests=[Interest("farándula", False), Interest("IA", True), None],
+    )
+    assert [s.items for s in selected] == [covered, liked]
