@@ -261,7 +261,7 @@ def _draft(llm: Ollama, sel: Selected, language: str, log: Callable[[str], None]
     # Sampling sometimes yields bad JSON, an empty body or a lowercase headline: retry once.
     for attempt in (1, 2):
         try:
-            d = llm.draft(_materials(sel.items), language)
+            d = llm.draft(_materials(sel.items), language, retry=attempt > 1)
         except OllamaUnavailableError:
             raise
         except OllamaError as e:

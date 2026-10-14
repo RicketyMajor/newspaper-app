@@ -62,7 +62,7 @@ class FakeLLM:
             raise OllamaUnavailableError("Ollama no responde")
         return [VECTORS[t.split("\n")[0]] for t in texts]
 
-    def draft(self, materials, language):
+    def draft(self, materials, language, retry=False):
         if self.down:
             raise OllamaUnavailableError("Ollama no responde")
         titles = [title for _, title, _ in materials]
@@ -79,12 +79,12 @@ class FlakyLLM(FakeLLM):
         super().__init__()
         self.tried = set()
 
-    def draft(self, materials, language):
+    def draft(self, materials, language, retry=False):
         title = materials[0][1]
         if title not in self.tried:
             self.tried.add(title)
             raise OllamaError("draft: JSON inválido")
-        return super().draft(materials, language)
+        return super().draft(materials, language, retry)
 
 
 def run(config, llm=None, **kwargs):
@@ -189,8 +189,10 @@ class ScriptedLLM:
 
     def __init__(self, *answers):
         self.answers = list(answers)
+        self.retries = []
 
-    def draft(self, materials, language):
+    def draft(self, materials, language, retry=False):
+        self.retries.append(retry)
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -205,6 +207,7 @@ def test_lowercase_headline_is_redrafted():
     llm = ScriptedLLM(LOWER, UPPER)
     note = _draft(llm, one_article_selection(), "es", log=lambda _msg: None)
     assert (note.headline, note.drafted, llm.answers) == (UPPER.headline, True, [])
+    assert llm.retries == [False, True]  # only the retry samples with a repeat penalty
 
 
 @pytest.mark.parametrize("retry", [LOWER, OllamaError("draft: JSON inválido")])

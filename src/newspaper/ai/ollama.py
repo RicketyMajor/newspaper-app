@@ -39,7 +39,8 @@ LANGUAGE_NAMES = {"es": "español", "en": "English"}
 NUM_CTX = 8192
 # ponytail: gemma3 sometimes emits no-break spaces (U+00A0) in a loop until Ollama aborts with
 # "token repeat limit reached" (a note published undrafted). 1.15 stopped it in 5/5 runs where
-# 0.7 temperature failed 2/5 (2026-10-14). Applied to every call, by the user's choice.
+# 0.7 temperature failed 2/5 (2026-10-14). Retry only: on every call it made 4/32 bodies open
+# with a "#" title, which the prompt forbids (0 in ~135 notes without it).
 REPEAT_PENALTY = 1.15
 
 SYSTEM_PROMPT = """\
@@ -69,6 +70,7 @@ there is one outlet or no relevant difference.
 
 _QUOTED = re.compile(r'"([^"\n]*)"')
 _OUTLET_TAG = re.compile(r"^\[[^\]\n]{1,40}\]\s*")
+_LEADING_HEADING = re.compile(r"^#{1,6}[ \t][^\n]*\n+")
 
 
 def _no_straight_quotes(text: str) -> str:
@@ -105,8 +107,13 @@ class Ollama:
             raise OllamaError("embed: respuesta inesperada")
         return vectors
 
-    def draft(self, materials: list[tuple[str, str, str]], language: str) -> Draft:
-        """materials: (outlet, title, text) per article."""
+    def draft(
+        self, materials: list[tuple[str, str, str]], language: str, retry: bool = False
+    ) -> Draft:
+        """materials: (outlet, title, text) per article. retry: sample with REPEAT_PENALTY."""
+        options = {"temperature": 0.3, "num_ctx": NUM_CTX}
+        if retry:
+            options["repeat_penalty"] = REPEAT_PENALTY
         sources = _no_straight_quotes(
             "\n\n".join(
                 f"### Outlet: {outlet}\nTitle: {title}\n\n{text}"
@@ -120,11 +127,7 @@ class Ollama:
                 "model": self.cfg.model,
                 "stream": False,
                 "format": DRAFT_SCHEMA,
-                "options": {
-                    "temperature": 0.3,
-                    "num_ctx": NUM_CTX,
-                    "repeat_penalty": REPEAT_PENALTY,
-                },
+                "options": options,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": sources},
@@ -136,5 +139,6 @@ class Ollama:
             draft = Draft(**{k: str(fields.get(k) or "").strip() for k in _FIELDS})
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
             raise OllamaError(f"draft: JSON inválido ({e})") from e
-        draft.body = _OUTLET_TAG.sub("", draft.body)  # it mimics the material's outlet headers
+        # It mimics the material's outlet headers, and sometimes opens with a title anyway.
+        draft.body = _LEADING_HEADING.sub("", _OUTLET_TAG.sub("", draft.body))
         return draft
