@@ -232,6 +232,7 @@ def _build_notes(
         config.sections,
         config.edition.front_page_size,
         config.edition.max_notes_per_section,
+        config.edition.section_limits,
     )
 
     drafts, failed_in_a_row = [], 0

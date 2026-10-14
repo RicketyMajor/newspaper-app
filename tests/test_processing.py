@@ -161,6 +161,15 @@ def test_select_ranks_by_distinct_sources_then_recency_and_applies_limits():
     ]
 
 
+def test_select_applies_a_per_section_limit():
+    tech = [[art("Xataka", "Tecnología", h)] for h in (1, 2, 3)]
+    world = [[art("DW", "Mundo", h)] for h in (4, 5, 6)]
+    selected = select_groups(
+        tech + world, ["Mundo", "Tecnología"], front_size=0, per_section=2, limits={"Tecnología": 1}
+    )
+    assert [s.section for s in selected] == ["Mundo", "Mundo", "Tecnología"]
+
+
 def test_select_breaks_outlet_ties_by_article_count_before_recency():
     quake = [art("BBC Mundo", "Mundo", 1), art("BBC Mundo", "Mundo", 2)]  # older, covered twice
     fresh = [art("DW", "Mundo", 9)]

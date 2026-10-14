@@ -20,6 +20,7 @@ timeout_seconds = 300
 window_hours = 36                   # how far back to look for unpublished articles
 front_page_size = 5
 max_notes_per_section = 10
+section_limits = { "Tecnología" = 5, "Cultura" = 5 }  # sections with their own cap
 cluster_threshold = 0.75            # cosine similarity to treat two articles as the same event
 
 [storage]
@@ -89,4 +90,88 @@ url = "https://www.xatakaciencia.com/feedburner.xml"
 type = "rss"
 section = "Ciencia"
 language = "es"
+enabled = true
+
+[[feeds]]
+name = "El País Tecnología"
+url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/tecnologia/portada"
+type = "rss"
+section = "Tecnología"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "Xataka"
+url = "https://www.xataka.com/feedburner.xml"
+type = "rss"
+section = "Tecnología"
+language = "es"
+enabled = true
+exclude = ["/seleccion/"]  # shopping picks and deals
+
+[[feeds]]
+name = "Genbeta"
+url = "https://www.genbeta.com/feedburner.xml"
+type = "rss"
+section = "Tecnología"
+language = "es"
+enabled = true
+
+# English sources: notes are still written in general.language.
+[[feeds]]
+name = "MIT Technology Review"
+url = "https://www.technologyreview.com/feed/"
+type = "rss"
+section = "Tecnología"
+language = "en"
+enabled = true
+
+[[feeds]]
+name = "The Verge"
+url = "https://www.theverge.com/rss/index.xml"
+type = "rss"
+section = "Tecnología"
+language = "en"
+enabled = true
+
+# Two feeds with the same name count as one outlet.
+[[feeds]]
+name = "El País Cultura"
+url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/cultura/portada"
+type = "rss"
+section = "Cultura"
+language = "es"
+enabled = true
+exclude = ["/suscripciones/"]  # subscription promos
+
+[[feeds]]
+name = "El País Cultura"
+url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/babelia/portada"
+type = "rss"
+section = "Cultura"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "Culto (La Tercera)"
+url = "https://www.latercera.com/arc/outboundfeeds/rss/category/culto/?outputType=xml"
+type = "rss"
+section = "Cultura"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "elDiario.es Cultura"
+url = "https://www.eldiario.es/rss/cultura/"
+type = "rss"
+section = "Cultura"
+language = "es"
+enabled = true
+
+[[feeds]]
+name = "The Guardian Books"
+url = "https://www.theguardian.com/books/rss"
+type = "rss"
+section = "Cultura"
+language = "en"
 enabled = true

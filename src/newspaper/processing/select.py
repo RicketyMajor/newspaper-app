@@ -23,10 +23,15 @@ def group_section(items: list[Any], sections: list[str]) -> str:
 
 
 def select_groups(
-    groups: list[list[Any]], sections: list[str], front_size: int, per_section: int
+    groups: list[list[Any]],
+    sections: list[str],
+    front_size: int,
+    per_section: int,
+    limits: dict[str, int] | None = None,
 ) -> list[Selected]:
     """Front page, then sections in TOML order; ranked by distinct outlets, then articles in
-    the group (an outlet covering it twice), then recency."""
+    the group (an outlet covering it twice), then recency. `limits` caps single sections."""
+    limits = limits or {}
     ranked = sorted(
         groups,
         key=lambda g: (len({a.source_name for a in g}), len(g), max(a.when for a in g)),
@@ -38,7 +43,7 @@ def select_groups(
     for g in ranked[front_size:]:
         section = group_section(g, sections)
         bucket = by_section.setdefault(section, [])
-        if len(bucket) < per_section:
+        if len(bucket) < limits.get(section, per_section):
             bucket.append(Selected(g, section, False))
 
     order = {name: i for i, name in enumerate(sections)}

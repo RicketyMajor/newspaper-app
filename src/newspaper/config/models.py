@@ -54,6 +54,7 @@ class EditionConfig(BaseModel):
     window_hours: int = 36
     front_page_size: int = 5
     max_notes_per_section: int = 10
+    section_limits: dict[str, int] = {}  # section -> its own max notes, e.g. {"Cultura": 5}
     cluster_threshold: float = 0.75
 
 
