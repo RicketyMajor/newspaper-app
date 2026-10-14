@@ -27,6 +27,10 @@ def test_install_script_registers_daily_task_with_catch_up(config, tmp_path):
     assert f'--config "{config.path.resolve()}"'.replace("'", "''") in script
     assert "-TaskName 'Newspaper'" in script
     assert "Unregister-ScheduledTask -TaskName 'Newspaper'" in schedule.uninstall_script()
+    assert "-TaskName 'Newspaper fetch'" in script
+    assert "-RepetitionInterval (New-TimeSpan -Minutes 30)" in script
+    assert script.count(" fetch'") == 2  # the fetch task's argument and its name
+    assert "Unregister-ScheduledTask -TaskName 'Newspaper fetch'" in schedule.uninstall_script()
 
 
 def test_cli_schedule_install_runs_powershell(monkeypatch):

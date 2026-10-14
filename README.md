@@ -41,10 +41,11 @@ The configuration is looked up in `./newspaper.toml`, then `~/.newspaper/newspap
 | Command | What it does |
 | --- | --- |
 | `newspaper generate [--force]` | Prepare today's edition (takes a while: one LLM call per note). |
+| `newspaper fetch` | Fetch the feeds and store new articles (no LLM). The scheduled task runs it every 30 minutes so short feeds don't lose articles between editions. |
 | `newspaper read` | Terminal reader. |
 | `newspaper web [--port 8765]` | Local web reader at `http://127.0.0.1:8765`. |
 | `newspaper status` | Today's edition status and the latest ready edition. |
-| `newspaper schedule install` | Windows scheduled task at `edition_hour`; runs at the next boot if the PC was off. |
+| `newspaper schedule install` | Windows scheduled tasks: the edition at `edition_hour` (runs at the next boot if the PC was off) and `fetch` every 30 minutes. |
 | `newspaper add-feed` / `list-feeds` | Manage sources. |
 
 Opening `read` or `web` after `edition_hour` starts today's edition in the background if it does not exist yet; meanwhile you read the previous one.

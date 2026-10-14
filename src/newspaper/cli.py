@@ -157,7 +157,7 @@ def _powershell(script: str) -> None:
 @schedule_group.command()
 @click.pass_context
 def install(ctx: click.Context) -> None:
-    """Crea (o actualiza) la tarea diaria."""
+    """Crea (o actualiza) la tarea diaria y la descarga cada 30 minutos."""
     config = _load(ctx)
     _powershell(schedule.install_script(config))
     hour = config.general.edition_hour
@@ -165,13 +165,17 @@ def install(ctx: click.Context) -> None:
         f"Tarea '{schedule.TASK_NAME}' lista: cada día a las {hour:02d}:00, "
         "o en cuanto enciendas el equipo si estaba apagado."
     )
+    console.print(
+        f"Tarea '{schedule.FETCH_TASK_NAME}' lista: descarga las fuentes cada "
+        f"{schedule.FETCH_EVERY_MINUTES} minutos."
+    )
 
 
 @schedule_group.command()
 def uninstall() -> None:
-    """Elimina la tarea diaria."""
+    """Elimina las tareas programadas."""
     _powershell(schedule.uninstall_script())
-    console.print(f"Tarea '{schedule.TASK_NAME}' eliminada.")
+    console.print(f"Tareas '{schedule.TASK_NAME}' y '{schedule.FETCH_TASK_NAME}' eliminadas.")
 
 
 @main.command(name="add-feed")
