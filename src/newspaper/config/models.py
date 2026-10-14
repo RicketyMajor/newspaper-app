@@ -62,11 +62,27 @@ class StorageConfig(BaseModel):
     database_path: Path = Path("~/.newspaper/newspaper.db")
 
 
+class InterestsConfig(BaseModel):
+    """The reader's topics. Short phrases: each one is also the label shown on a note."""
+
+    like: list[str] = []
+    dislike: list[str] = []
+
+    @model_validator(mode="after")
+    def _phrases_are_clear(self) -> "InterestsConfig":
+        if any(not p.strip() for p in [*self.like, *self.dislike]):
+            raise ValueError("[interests]: hay una frase vacía")
+        if both := sorted(set(self.like) & set(self.dislike)):
+            raise ValueError(f"[interests]: {', '.join(both)} está en like y en dislike")
+        return self
+
+
 class NewspaperConfig(BaseModel):
     general: GeneralConfig = Field(default_factory=GeneralConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     edition: EditionConfig = Field(default_factory=EditionConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    interests: InterestsConfig = Field(default_factory=InterestsConfig)
     feeds: list[FeedConfig] = Field(default_factory=list)
     path: Path | None = Field(default=None, exclude=True)  # file it was loaded from
 

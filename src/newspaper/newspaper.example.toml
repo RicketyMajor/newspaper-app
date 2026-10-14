@@ -26,6 +26,14 @@ cluster_threshold = 0.75            # cosine similarity to treat two articles as
 [storage]
 database_path = "~/.newspaper/newspaper.db"
 
+# Optional: your interests. The local model picks each event's main topic from these
+# lists (plus a few fixed neutral topics). "dislike" events go last in their section and
+# never to the front page; "like" events go first among those covered by as many outlets.
+# The phrase is shown on the note, so keep it short.
+# [interests]
+# like = ["inteligencia artificial", "libros y literatura"]
+# dislike = ["farándula y celebridades", "fútbol y deportes"]
+
 # =============================================================================
 # Feeds — sections are taken from `section`, in order of first appearance.
 # Only type = "rss" is supported for now (RSS 2.0, Atom and RDF).

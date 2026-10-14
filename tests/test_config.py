@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from newspaper.cli import main
 from newspaper.config.loader import EXAMPLE_CONFIG, append_feed, find_config_path, load_config
-from newspaper.config.models import FeedConfig, NewspaperConfig
+from newspaper.config.models import FeedConfig, InterestsConfig, NewspaperConfig
 
 
 def test_example_config_loads():
@@ -108,3 +108,12 @@ def test_cli_list_feeds_uses_config_option():
     result = CliRunner().invoke(main, ["--config", str(EXAMPLE_CONFIG), "list-feeds"])
     assert result.exit_code == 0, result.output
     assert "CIPER" in result.output
+
+
+def test_interests_are_optional_and_reject_contradictions():
+    assert NewspaperConfig().interests == InterestsConfig(like=[], dislike=[])
+    assert load_config(EXAMPLE_CONFIG).interests.like == []  # the example ships it commented
+    with pytest.raises(ValidationError, match="música"):
+        NewspaperConfig(interests={"like": ["música"], "dislike": ["música"]})
+    with pytest.raises(ValidationError):
+        NewspaperConfig(interests={"like": ["  "]})
