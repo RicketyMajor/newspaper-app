@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -57,6 +58,10 @@ def _load(ctx: click.Context) -> NewspaperConfig:
         raise click.ClickException(f"Configuración inválida: {e}") from e
 
 
+def _log_path(config: NewspaperConfig) -> Path:
+    return Path(config.storage.database_path).expanduser().parent / "generate.log"
+
+
 @main.command()
 @click.option("--force", is_flag=True, help="Regenera la edición de hoy aunque ya esté lista.")
 @click.pass_context
@@ -65,10 +70,22 @@ def generate(ctx: click.Context, force: bool) -> None:
     from .edition.generate import generate as run_generate  # heavy: keep the readers fast
 
     config = _load(ctx)
-    console.print(f"Preparando la edición del {local_today(config):%d-%m-%Y}…")
-    result = run_generate(config, force=force, log=lambda msg: console.print(f"[dim]{msg}[/dim]"))
-    color = {"ready": "green", "failed": "red", "skipped": "yellow"}[result.status]
-    console.print(f"[{color}]{result.message}[/{color}]")
+    path = _log_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The scheduled task runs under pythonw (no console): the log is the only trace it leaves.
+    # ponytail: append-only, ~3 KB per edition; rotate it if it ever gets in the way.
+    with path.open("a", encoding="utf-8") as log_file:
+
+        def log(message: str, style: str = "dim") -> None:
+            # markup=False: titles and errors may contain "[/...]", which Rich would parse.
+            console.print(message, style=style, markup=False, highlight=False)
+            log_file.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {message}\n")
+            log_file.flush()
+
+        log(f"Preparando la edición del {local_today(config):%d-%m-%Y}…", style="none")
+        result = run_generate(config, force=force, log=log)
+        color = {"ready": "green", "failed": "red", "skipped": "yellow"}[result.status]
+        log(result.message, style=color)
     if result.status == "failed":
         raise SystemExit(1)
 
@@ -197,5 +214,10 @@ def status(ctx: click.Context) -> None:
         if latest:
             notes = len(latest.notes)
             console.print(f"Última edición lista: {latest.edition_date} ({notes} notas)")
+            undrafted = sum(not n.drafted for n in latest.notes)
+            if undrafted:
+                console.print(
+                    f"{undrafted} sin redactar (detalle en {_log_path(config)})", style="yellow"
+                )
         else:
             console.print("Todavía no hay ediciones listas.")
