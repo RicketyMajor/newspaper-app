@@ -161,3 +161,13 @@ def test_failed_today_suggests_generate(client, engine, config, seeded):
     page = client.get("/").text
     assert "La edición de hoy falló: X" in page
     assert "newspaper generate" in page
+
+
+def test_interest_label_on_cards_and_explained_on_the_note(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["world"])
+        note.interest, note.interest_liked = "geopolítica de prueba", False
+    assert "Menos interés: geopolítica de prueba" in client.get("/").text
+    page = client.get(f"/n/{seeded['world']}").text
+    assert "<strong>Menos interés:</strong>" in page
+    assert "Te interesa" not in client.get(f"/n/{seeded['front']}").text

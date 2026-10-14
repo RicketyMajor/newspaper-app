@@ -35,6 +35,12 @@ def marks(item: Note | Article) -> str:
     return ("★ " if item.is_favorite else "") + ("◆ " if item.is_saved else "")
 
 
+def interest_label(note: Note) -> str | None:
+    if note.interest is None:
+        return None
+    return f"{'te interesa' if note.interest_liked else 'menos interés'}: {note.interest}"
+
+
 def note_text(note: Note) -> Text:
     outlets = len({a.source_name for a in note.articles})
     meta = [note.section, f"{outlets} {'fuente' if outlets == 1 else 'fuentes'}"]
@@ -43,6 +49,7 @@ def note_text(note: Note) -> Text:
         ("fuente única", note.single_source),
         ("basada en extracto", note.excerpt_only),
         ("sin redactar", not note.drafted),
+        (interest_label(note), note.interest is not None),
     ) if on]  # fmt: skip
     style = "dim" if note.is_read else "bold"
     return Text.assemble((marks(note) + note.headline, style), "\n", (" · ".join(meta), "dim"))
@@ -240,7 +247,9 @@ class NoteScreen(ReaderScreen):
         note = s.get(Note, ref)
         day = long_date(note.edition.edition_date)
         unread = "" if note.is_read else " · no leída"
-        self.sub_title = f"{marks(note)}{note.section} · {day}{unread}"
+        label = interest_label(note)
+        interest = f" · {label}" if label else ""
+        self.sub_title = f"{marks(note)}{note.section} · {day}{unread}{interest}"
 
     def action_open_original(self) -> None:
         sources = self.query_one("#sources", ListView)

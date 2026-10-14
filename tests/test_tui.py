@@ -5,7 +5,15 @@ from sqlalchemy.orm import Session
 from textual.widgets import Input, Label, ListView
 
 from newspaper.storage.models import Article, Note
-from newspaper.tui.app import EditionScreen, ListScreen, NewspaperApp, NoteScreen, SearchScreen
+from newspaper.tui.app import (
+    EditionScreen,
+    ListScreen,
+    NewspaperApp,
+    NoteScreen,
+    SearchScreen,
+    interest_label,
+    note_text,
+)
 
 
 def entries(screen) -> list[tuple[str, object]]:
@@ -94,6 +102,13 @@ async def test_o_on_a_listed_note_opens_its_main_source(config, seeded, monkeypa
     async with app.run_test() as pilot:
         await pilot.press("o")
     assert opened == ["https://news.test/1"]
+
+
+def test_interest_label_in_note_lists():
+    liked = Note(section="Ciencia", headline="H", interest="IA", interest_liked=True)
+    assert interest_label(liked) == "te interesa: IA"
+    assert "te interesa: IA" in note_text(liked).plain
+    assert interest_label(Note(section="Mundo", headline="H", read_minutes=1)) is None
 
 
 def test_readers_do_not_import_the_generator():

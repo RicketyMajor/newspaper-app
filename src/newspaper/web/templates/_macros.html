@@ -5,6 +5,7 @@
 
 {# Single source shows in the outlet name itself; the tags left are the warnings. #}
 {% macro tags(note) -%}
+{% if note.interest %}<span class="tag">{{ 'Te interesa' if note.interest_liked else 'Menos interés' }}: {{ note.interest }}</span>{% endif %}
 {% if note.excerpt_only %}<span class="tag">Solo extracto</span>{% endif %}
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
 {%- endmacro %}

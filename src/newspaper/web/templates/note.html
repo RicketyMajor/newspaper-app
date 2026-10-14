@@ -8,11 +8,12 @@
   <h1>{{ note.headline }}</h1>
   {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min de lectura {{ tags(note) }}</p>
-  {% if note.single_source or note.excerpt_only or not note.drafted %}
+  {% if note.single_source or note.excerpt_only or not note.drafted or note.interest %}
   <ul class="caveats">
     {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
     {% if note.excerpt_only %}<li><strong>Solo extracto:</strong> no se pudo leer el texto completo; la nota se basa en el resumen del feed.</li>{% endif %}
     {% if not note.drafted %}<li><strong>Sin redactar:</strong> el modelo local no pudo redactarla; se muestran los extractos originales.</li>{% endif %}
+    {% if note.interest %}<li><strong>{{ 'Te interesa' if note.interest_liked else 'Menos interés' }}:</strong> el modelo local la clasificó como «{{ note.interest }}», de tu lista de intereses; por eso {{ 'sube entre las notas con igual número de medios' if note.interest_liked else 'va al final de su sección y nunca a portada' }}.</li>{% endif %}
   </ul>
   {% endif %}
   <div class="body">{{ note.body|markdown|safe }}</div>

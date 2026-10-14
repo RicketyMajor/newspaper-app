@@ -9,7 +9,7 @@ A personal daily newspaper. You list your RSS sources by section; every morning 
 1. **Fetch** every enabled RSS/Atom/RDF feed in `newspaper.toml`.
 2. **Extract** the public article text with trafilatura; fall back to the RSS excerpt.
 3. **Group** articles about the same event: multilingual embeddings (`bge-m3`) + a cosine-similarity threshold.
-4. **Select** a front page (events covered by the most outlets, then the most recent) and up to N notes per section.
+4. **Select** a front page (events covered by the most outlets, then the most recent) and up to N notes per section. With `[interests]`, the local model tags each event with one of your topics: "dislike" ones go last and never to the front page, "like" ones go first among events covered by as many outlets.
 5. **Write** each note with `gemma3:12b`: headline, dek, body, and "where sources differ" when there are two or more outlets.
 6. **Publish** the edition atomically in SQLite. If Ollama is down the edition fails and the previous one stays readable.
 
@@ -77,6 +77,8 @@ Per feed (`[[feeds]]`), optional rules: regexes searched (case-insensitive) in e
 
 - `exclude = ["/deportes/"]`: drop matching articles; they are never stored, extracted or written.
 - `route = { "/mundo/" = "Mundo" }`: move matching articles to another section (first match wins; `exclude` goes first).
+
+Optional `[interests]` (see the commented example): `like` and `dislike` lists of short phrases. `gemma3:12b` picks each event's main topic among them plus a few fixed neutral topics (one quick call per event, about 1.5 s each); a story that fits both lists counts as "dislike". Each note shows its label ("Te interesa: …" / "Menos interés: …").
 
 ## Development
 
