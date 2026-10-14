@@ -63,6 +63,7 @@ def test_draft_parses_structured_output_and_prompts_in_language():
     assert "español" in seen["messages"][0]["content"]
     assert "CIPER" in seen["messages"][1]["content"]
     assert seen["options"]["num_ctx"] >= 8192  # Ollama's 4096 default truncates the material
+    assert seen["options"]["repeat_penalty"] == 1.15  # stops gemma3's runaway no-break spaces
 
 
 def test_draft_material_never_contains_straight_double_quotes():
