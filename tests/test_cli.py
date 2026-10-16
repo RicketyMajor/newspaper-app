@@ -1,4 +1,5 @@
 import re
+from contextlib import contextmanager
 from datetime import date
 
 import httpx
@@ -77,6 +78,29 @@ def test_generate_appends_its_progress_to_a_log_next_to_the_database(tmp_path, m
     assert "Preparando la edición del" in lines[0]
     assert lines[2].endswith("(Video [/VIDEO]): Ollama 500: token repeat limit reached")
     assert lines[3].endswith("Edición publicada con 1 notas.")
+
+
+def test_generate_keeps_the_pc_awake_while_it_runs(tmp_path, monkeypatch):
+    awake = []
+
+    @contextmanager
+    def fake_keep_awake():
+        awake.append("on")
+        yield
+        awake.append("off")
+
+    def fake_generate(config, *, force, log):
+        assert awake == ["on"]
+        return GenerateResult("ready", "Edición publicada con 1 notas.", date(2026, 10, 16))
+
+    monkeypatch.setattr("newspaper.schedule.keep_awake", fake_keep_awake)
+    monkeypatch.setattr("newspaper.edition.generate.generate", fake_generate)
+    result = CliRunner().invoke(
+        main, ["--config", str(write_config(tmp_path, tmp_path / "n.db")), "generate"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert awake == ["on", "off"]
 
 
 def test_status_counts_undrafted_notes(tmp_path, engine, seeded):

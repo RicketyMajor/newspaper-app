@@ -1,7 +1,9 @@
 import os
 import subprocess
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -31,6 +33,32 @@ def test_install_script_registers_daily_task_with_catch_up(config, tmp_path):
     assert "-RepetitionInterval (New-TimeSpan -Minutes 30)" in script
     assert script.count(" fetch'") == 2  # the fetch task's argument and its name
     assert "Unregister-ScheduledTask -TaskName 'Newspaper fetch'" in schedule.uninstall_script()
+
+
+def test_only_the_edition_task_wakes_the_pc(config):
+    edition, fetch = schedule.install_script(config).split("-TaskName 'Newspaper'")
+    assert "-WakeToRun" in edition
+    assert "-WakeToRun" not in fetch
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_holds_the_request_until_the_edition_ends(monkeypatch):
+    import ctypes
+
+    states = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=states.append)
+    )
+    with pytest.raises(RuntimeError), schedule.keep_awake():
+        assert states == [schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED]
+        raise RuntimeError
+    assert states[-1] == schedule.ES_CONTINUOUS
+
+
+def test_keep_awake_does_nothing_off_windows(monkeypatch):
+    monkeypatch.setattr(schedule.sys, "platform", "linux")
+    with schedule.keep_awake():
+        pass
 
 
 def test_cli_schedule_install_runs_powershell(monkeypatch):

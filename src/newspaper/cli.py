@@ -85,7 +85,8 @@ def generate(ctx: click.Context, force: bool) -> None:
     config = _load(ctx)
     log = functools.partial(_log, config)
     log(f"Preparando la edición del {local_today(config):%d-%m-%Y}…", style="none")
-    result = run_generate(config, force=force, log=log)
+    with schedule.keep_awake():
+        result = run_generate(config, force=force, log=log)
     log(
         result.message,
         style={"ready": "green", "failed": "red", "skipped": "yellow"}[result.status],
