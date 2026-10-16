@@ -53,7 +53,7 @@ def test_append_feed_escapes_and_stays_valid(tmp_path):
 
     assert load_config(path).feeds == [feed, feed]
     text = path.read_text(encoding="utf-8")
-    assert "exclude" not in text and "route" not in text
+    assert not any(key in text for key in ("exclude", "route", "type", "enabled"))  # defaults
 
 
 def test_feed_rules_pick_the_section():

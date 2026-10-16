@@ -70,13 +70,6 @@ def running(edition: Edition) -> bool:
     )
 
 
-def generate_command(config: NewspaperConfig) -> list[str]:
-    cmd = [sys.executable, "-m", "newspaper"]
-    if config.path:
-        cmd += ["--config", str(config.path.resolve())]
-    return [*cmd, "generate"]
-
-
 def maybe_spawn_generate(config: NewspaperConfig, now: datetime | None = None) -> bool:
     """Recovery when a reader opens: start today's edition in the background if it is due,
     missing and nobody is working on it. A failed edition is not retried automatically."""
@@ -87,12 +80,15 @@ def maybe_spawn_generate(config: NewspaperConfig, now: datetime | None = None) -
         today = queries.today_edition(s, local.date())
         if today is not None and (today.status != EditionStatus.generating or running(today)):
             return False
+    cmd = [sys.executable, "-m", "newspaper"]
+    if config.path:
+        cmd += ["--config", str(config.path.resolve())]
     if sys.platform == "win32":
         flags = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
     else:
         flags = {"start_new_session": True}
     subprocess.Popen(
-        generate_command(config),
+        [*cmd, "generate"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

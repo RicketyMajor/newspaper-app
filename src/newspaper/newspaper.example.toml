@@ -36,7 +36,7 @@ database_path = "~/.newspaper/newspaper.db"
 
 # =============================================================================
 # Feeds — sections are taken from `section`, in order of first appearance.
-# Only type = "rss" is supported for now (RSS 2.0, Atom and RDF).
+# Feeds are RSS 2.0, Atom or RDF (the only `type` for now, so it can be left out).
 # Optional rules per feed: regexes searched (case-insensitive) in each article's
 # URL and title. `exclude` drops matches; `route` moves them to another section
 # (first match wins; `exclude` goes first). They apply to newly fetched articles.
@@ -45,7 +45,6 @@ database_path = "~/.newspaper/newspaper.db"
 [[feeds]]
 name = "CIPER"
 url = "https://www.ciperchile.cl/feed/"
-type = "rss"
 section = "Chile"
 language = "es"
 enabled = true
@@ -53,7 +52,6 @@ enabled = true
 [[feeds]]
 name = "Cooperativa"
 url = "https://www.cooperativa.cl/noticias/site/tax/port/all/rss____1.xml"
-type = "rss"
 section = "Chile"
 language = "es"
 enabled = true
@@ -63,7 +61,6 @@ route = { "/mundo/" = "Mundo" }
 [[feeds]]
 name = "BBC Mundo"
 url = "https://feeds.bbci.co.uk/mundo/rss.xml"
-type = "rss"
 section = "Mundo"
 language = "es"
 enabled = true
@@ -71,7 +68,6 @@ enabled = true
 [[feeds]]
 name = "DW Español"
 url = "https://rss.dw.com/rdf/rss-sp-all"
-type = "rss"
 section = "Mundo"
 language = "es"
 enabled = true
@@ -79,7 +75,6 @@ enabled = true
 [[feeds]]
 name = "El País Ciencia"
 url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/ciencia/portada"
-type = "rss"
 section = "Ciencia"
 language = "es"
 enabled = true
@@ -87,7 +82,6 @@ enabled = true
 [[feeds]]
 name = "The Conversation ES"
 url = "https://theconversation.com/es/ciencia/articles.atom"
-type = "rss"
 section = "Ciencia"
 language = "es"
 enabled = true
@@ -95,7 +89,6 @@ enabled = true
 [[feeds]]
 name = "Xataka Ciencia"
 url = "https://www.xatakaciencia.com/feedburner.xml"
-type = "rss"
 section = "Ciencia"
 language = "es"
 enabled = true
@@ -103,7 +96,6 @@ enabled = true
 [[feeds]]
 name = "El País Tecnología"
 url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/tecnologia/portada"
-type = "rss"
 section = "Tecnología"
 language = "es"
 enabled = true
@@ -111,7 +103,6 @@ enabled = true
 [[feeds]]
 name = "Xataka"
 url = "https://www.xataka.com/feedburner.xml"
-type = "rss"
 section = "Tecnología"
 language = "es"
 enabled = true
@@ -120,7 +111,6 @@ exclude = ["/seleccion/", "/xataka/"]  # shopping picks and deals; self-promotio
 [[feeds]]
 name = "Genbeta"
 url = "https://www.genbeta.com/feedburner.xml"
-type = "rss"
 section = "Tecnología"
 language = "es"
 enabled = true
@@ -129,7 +119,6 @@ enabled = true
 [[feeds]]
 name = "MIT Technology Review"
 url = "https://www.technologyreview.com/feed/"
-type = "rss"
 section = "Tecnología"
 language = "en"
 enabled = true
@@ -137,7 +126,6 @@ enabled = true
 [[feeds]]
 name = "The Verge"
 url = "https://www.theverge.com/rss/index.xml"
-type = "rss"
 section = "Tecnología"
 language = "en"
 enabled = true
@@ -146,7 +134,6 @@ enabled = true
 [[feeds]]
 name = "El País Cultura"
 url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/cultura/portada"
-type = "rss"
 section = "Cultura"
 language = "es"
 enabled = true
@@ -155,7 +142,6 @@ exclude = ["/suscripciones/"]  # subscription promos
 [[feeds]]
 name = "El País Cultura"
 url = "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/babelia/portada"
-type = "rss"
 section = "Cultura"
 language = "es"
 enabled = true
@@ -163,7 +149,6 @@ enabled = true
 [[feeds]]
 name = "Culto (La Tercera)"
 url = "https://www.latercera.com/arc/outboundfeeds/rss/category/culto/?outputType=xml"
-type = "rss"
 section = "Cultura"
 language = "es"
 enabled = true
@@ -171,7 +156,6 @@ enabled = true
 [[feeds]]
 name = "elDiario.es Cultura"
 url = "https://www.eldiario.es/rss/cultura/"
-type = "rss"
 section = "Cultura"
 language = "es"
 enabled = true
@@ -179,7 +163,6 @@ enabled = true
 [[feeds]]
 name = "The Guardian Books"
 url = "https://www.theguardian.com/books/rss"
-type = "rss"
 section = "Cultura"
 language = "en"
 enabled = true

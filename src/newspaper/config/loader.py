@@ -34,9 +34,7 @@ def append_feed(path: Path, feed: FeedConfig) -> None:
     """Append a [[feeds]] block, refusing to write a file that would no longer parse."""
     # ponytail: json.dumps(ensure_ascii=False) emits a valid TOML basic string for these values.
     lines = ["", "[[feeds]]"]
-    for key, value in feed.model_dump().items():
-        if value in ([], {}):  # rules left empty stay out of the file
-            continue
+    for key, value in feed.model_dump(exclude_defaults=True).items():  # empty rules, type…
         lines.append(f"{key} = {json.dumps(value, ensure_ascii=False)}")
     current = path.read_text(encoding="utf-8")
     updated = current.rstrip("\n") + "\n" + "\n".join(lines) + "\n"

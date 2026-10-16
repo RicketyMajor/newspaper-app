@@ -27,18 +27,15 @@ class SearchHit:
     snippet: str
 
 
+_READY = select(Edition).where(Edition.status == EditionStatus.ready)
+
+
 def latest_ready_edition(s: Session) -> Edition | None:
-    stmt = (
-        select(Edition)
-        .where(Edition.status == EditionStatus.ready)
-        .order_by(Edition.edition_date.desc())
-    )
-    return s.scalars(stmt.limit(1)).first()
+    return s.scalars(_READY.order_by(Edition.edition_date.desc()).limit(1)).first()
 
 
 def ready_edition(s: Session, day: date) -> Edition | None:
-    stmt = select(Edition).where(Edition.edition_date == day, Edition.status == EditionStatus.ready)
-    return s.scalars(stmt).first()
+    return s.scalars(_READY.where(Edition.edition_date == day)).first()
 
 
 def today_edition(s: Session, day: date) -> Edition | None:
@@ -47,12 +44,7 @@ def today_edition(s: Session, day: date) -> Edition | None:
 
 
 def list_editions(s: Session) -> list[Edition]:
-    stmt = (
-        select(Edition)
-        .where(Edition.status == EditionStatus.ready)
-        .order_by(Edition.edition_date.desc())
-    )
-    return list(s.scalars(stmt))
+    return list(s.scalars(_READY.order_by(Edition.edition_date.desc())))
 
 
 def front_page(s: Session, edition_id: int) -> list[Note]:
