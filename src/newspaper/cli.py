@@ -171,7 +171,8 @@ def install(ctx: click.Context) -> None:
         f"{schedule.FETCH_EVERY_MINUTES} minutos."
     )
     console.print(
-        f"Tarea '{schedule.WEB_TASK_NAME}' lista y en marcha: la web en http://127.0.0.1:8765, "
+        f"Tarea '{schedule.WEB_TASK_NAME}' lista y en marcha: la web en "
+        f"http://127.0.0.1:{schedule.WEB_PORT}, "
         f"al iniciar sesión y revisada cada {schedule.FETCH_EVERY_MINUTES} minutos; mantiene el "
         "equipo despierto."
     )

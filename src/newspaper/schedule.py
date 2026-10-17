@@ -14,6 +14,7 @@ from .config.models import NewspaperConfig
 TASK_NAME = "Newspaper"
 FETCH_TASK_NAME = "Newspaper fetch"
 WEB_TASK_NAME = "Newspaper web"
+WEB_PORT = 8765  # `newspaper web`'s default, which the task uses
 # ponytail: Cooperativa's feed holds 15 items, ~100 min of news at midday (2026-10-14);
 # 30 min leaves room for bursts. Make it a setting if another feed needs a different pace.
 FETCH_EVERY_MINUTES = 30
@@ -93,6 +94,10 @@ def install_script(config: NewspaperConfig) -> str:
                 0,  # no time limit
                 "Sirve la web de Newspaper y mantiene el equipo despierto para leer desde el móvil",
             ),
+            # The stopped server's python child lets go of the port a moment later, and a start
+            # before that exits with 3. ponytail: up to 10 s; a manual server keeps it longer.
+            f"for ($i = 0; $i -lt 40 -and (Get-NetTCPConnection -LocalPort {WEB_PORT} -State "
+            "Listen -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }",
             f"Start-ScheduledTask -TaskName {web}",
         ]
     )

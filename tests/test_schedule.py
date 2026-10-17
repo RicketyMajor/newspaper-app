@@ -141,3 +141,12 @@ def test_uninstall_stops_the_web_server_before_removing_the_tasks():
     assert stop < script.index("Unregister-ScheduledTask -TaskName 'Newspaper web'")
     for name in ("Newspaper", "Newspaper fetch", "Newspaper web"):
         assert f"Unregister-ScheduledTask -TaskName '{name}'" in script
+
+
+def test_install_waits_for_the_stopped_server_to_free_its_port(config):
+    # The stopped server's python child lets go of 8765 a moment later; a start before that
+    # exits with 3 and leaves no server until the next 30-minute trigger (seen 2026-10-17).
+    script = schedule.install_script(config)
+    wait = script.index("Get-NetTCPConnection -LocalPort 8765 -State Listen")
+    assert script.index("Register-ScheduledTask -TaskName 'Newspaper web'") < wait
+    assert wait < script.index("Start-ScheduledTask -TaskName 'Newspaper web'")
