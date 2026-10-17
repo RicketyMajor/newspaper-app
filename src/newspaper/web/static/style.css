@@ -83,6 +83,7 @@ p.nameplate { font-size: clamp(2rem, 5vw, 3rem); }  /* inside pages: a folio, no
 }
 .search input::placeholder { color: var(--muted); opacity: 1; }
 .search-link { display: none; }
+.page-search { margin: 1.25rem 0 0; }
 nav.sections {
   display: flex;
   flex-wrap: wrap;

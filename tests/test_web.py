@@ -230,3 +230,13 @@ def test_manifest_lets_chrome_install_the_paper(client):
     page = client.get("/").text
     assert '<link rel="manifest" href="/manifest.webmanifest">' in page
     assert '<meta name="theme-color"' in page
+
+
+def test_toggle_form_without_js_from_this_site_still_redirects(client, seeded):
+    # What a real browser sends for the no-JS form: same-origin, then back to the page.
+    note = seeded["front"]
+    headers = {"sec-fetch-site": "same-origin", "referer": f"http://127.0.0.1:8765/n/{note}"}
+    response = client.post(
+        f"/n/{note}/estado", params={"flag": "saved"}, headers=headers, follow_redirects=False
+    )
+    assert (response.status_code, response.headers["location"]) == (303, f"/n/{note}")

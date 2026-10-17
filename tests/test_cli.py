@@ -177,5 +177,17 @@ def test_web_on_a_taken_port_points_to_the_running_server(tmp_path, monkeypatch)
 
     assert result.exit_code == 3
     assert "Si ya hay un servidor" in result.output
+    assert "está en http://127.0.0.1:8765/." in result.output
     assert calls.opened == ["http://127.0.0.1:8765/"]
     assert (calls.recovered, calls.awake) == (1, ["on", "off"])
+
+
+def test_web_logs_a_startup_error_that_pythonw_would_otherwise_lose(tmp_path, monkeypatch):
+    def uvicorn_run(app, **kwargs):
+        raise RuntimeError("database is locked")
+
+    result, _ = run_web(tmp_path, monkeypatch, uvicorn_run, "--no-browser")
+
+    assert result.exit_code == 1
+    log = (tmp_path / "data" / "web.log").read_text(encoding="utf-8")
+    assert "RuntimeError: database is locked" in log  # with its traceback

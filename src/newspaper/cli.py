@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import shutil
 import sys
 import tomllib
@@ -59,8 +60,8 @@ def _load(ctx: click.Context) -> NewspaperConfig:
         raise click.ClickException(f"Configuración inválida: {e}") from e
 
 
-def _log_path(config: NewspaperConfig) -> Path:
-    return Path(config.storage.database_path).expanduser().parent / "generate.log"
+def _log_path(config: NewspaperConfig, name: str = "generate.log") -> Path:
+    return Path(config.storage.database_path).expanduser().parent / name
 
 
 def _log(config: NewspaperConfig, message: str, style: str = "dim") -> None:
@@ -125,7 +126,7 @@ def read(ctx: click.Context) -> None:
 
 
 @main.command()
-@click.option("--port", default=8765, show_default=True)
+@click.option("--port", default=schedule.WEB_PORT, show_default=True)
 @click.option("--no-browser", is_flag=True, help="No abrir el navegador.")
 @click.pass_context
 def web(ctx: click.Context, port: int, no_browser: bool) -> None:
@@ -133,8 +134,32 @@ def web(ctx: click.Context, port: int, no_browser: bool) -> None:
     from .web.app import serve
 
     config = _load(ctx)
-    _recover(config)
-    serve(config, port=port, open_browser=not no_browser)
+    log = _log_path(config, "web.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    # The scheduled task runs under pythonw, with no console: startup errors, bind errors and
+    # 500s (with their tracebacks) land here. ponytail: append-only and errors only; rotate it
+    # if it grows.
+    logging.basicConfig(
+        filename=log,
+        encoding="utf-8",
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s: %(message)s",
+        force=True,
+    )
+    try:
+        _recover(config)
+        serve(config, port=port, open_browser=not no_browser)
+    except SystemExit as e:
+        # ponytail: uvicorn's STARTUP_FAILURE; in practice the port is taken, web.log says.
+        if e.code == 3:
+            click.echo(
+                f"No se pudo usar el puerto {port}. Si ya hay un servidor (la tarea "
+                f"{schedule.WEB_TASK_NAME}), está en http://127.0.0.1:{port}/. Detalle en {log}"
+            )
+        raise
+    except Exception:
+        logging.exception("newspaper web se detuvo")
+        raise
 
 
 def _recover(config: NewspaperConfig) -> None:
@@ -182,8 +207,10 @@ def install(ctx: click.Context) -> None:
 def uninstall() -> None:
     """Elimina las tareas programadas."""
     _powershell(schedule.uninstall_script())
-    names = (schedule.TASK_NAME, schedule.FETCH_TASK_NAME, schedule.WEB_TASK_NAME)
-    console.print(f"Tareas '{names[0]}', '{names[1]}' y '{names[2]}' eliminadas.")
+    console.print(
+        f"Tareas '{schedule.TASK_NAME}', '{schedule.FETCH_TASK_NAME}' y "
+        f"'{schedule.WEB_TASK_NAME}' eliminadas."
+    )
 
 
 @main.command(name="add-feed")
