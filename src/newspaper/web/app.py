@@ -30,7 +30,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     engine = open_db(config)
     app = FastAPI(title=config.general.edition_name, docs_url=None, redoc_url=None)
     # DNS rebinding: a foreign domain resolving to 127.0.0.1 must not read the reading history.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    # *.ts.net: the phone through `tailscale serve`; Tailscale owns that DNS, nobody can rebind it.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "*.ts.net"])
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -153,6 +154,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         obj_id: int,
         flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
     ):
+        # Another site's form (any page open in the phone or PC browser) must not flip marks.
+        # same-site is not enough: it ignores the port. No header: old clients and the tests.
+        if request.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
+            raise HTTPException(403, "Ese cambio llegó desde otro sitio.")
         try:
             value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag)
         except LookupError as e:

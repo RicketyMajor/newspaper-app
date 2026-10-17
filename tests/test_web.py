@@ -171,3 +171,30 @@ def test_interest_label_on_cards_and_explained_on_the_note(client, engine, seede
     page = client.get(f"/n/{seeded['world']}").text
     assert "<strong>Menos interés:</strong>" in page
     assert "Te interesa" not in client.get(f"/n/{seeded['front']}").text
+
+
+def test_accepts_the_tailnet_name_behind_tailscale_serve(client):
+    # `tailscale serve` forwards the original Host: <pc>.<tailnet>.ts.net (ipn/ipnlocal/serve.go).
+    assert client.get("/", headers={"host": "desktop-ca3f86f.tail1234.ts.net"}).status_code == 200
+    assert client.get("/", headers={"host": "evil.example"}).status_code == 400
+
+
+@pytest.mark.parametrize("site", ["cross-site", "same-site"])
+def test_toggles_refuse_other_sites(client, engine, seeded, site):
+    # same-site ignores the port: a page on another 127.0.0.1 port is same-site.
+    note = seeded["front"]
+    response = client.post(
+        f"/n/{note}/estado", params={"flag": "favorite"}, headers={"sec-fetch-site": site}
+    )
+    assert response.status_code == 403
+    with Session(engine) as s:
+        assert not s.get(Note, note).is_favorite
+
+
+@pytest.mark.parametrize("site", ["same-origin", "none"])
+def test_toggles_accept_this_site(client, seeded, site):
+    headers = {"accept": "application/json", "sec-fetch-site": site}
+    response = client.post(
+        f"/n/{seeded['front']}/estado", params={"flag": "favorite"}, headers=headers
+    )
+    assert response.json() == {"value": True}
