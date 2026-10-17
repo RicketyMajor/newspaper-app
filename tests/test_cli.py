@@ -1,6 +1,8 @@
+import logging
 import re
 from contextlib import contextmanager
 from datetime import date
+from types import SimpleNamespace
 
 import httpx
 from click.testing import CliRunner
@@ -112,3 +114,68 @@ def test_status_counts_undrafted_notes(tmp_path, engine, seeded):
 
     assert result.exit_code == 0, result.output
     assert "1 sin redactar (detalle en" in result.output
+
+
+def run_web(tmp_path, monkeypatch, uvicorn_run, *args):
+    """`newspaper web` with uvicorn, the browser, recovery and keep_awake faked."""
+    calls = SimpleNamespace(recovered=0, opened=[], awake=[])
+
+    def recover(config):
+        calls.recovered += 1
+        return False
+
+    class NowTimer:  # the browser opens at once instead of a second later
+        def __init__(self, _delay, fn, args):
+            self.fn, self.args = fn, args
+
+        def start(self):
+            self.fn(*self.args)
+
+    @contextmanager
+    def keep_awake():  # like the real one, it lets go when uvicorn raises
+        calls.awake.append("on")
+        try:
+            yield
+        finally:
+            calls.awake.append("off")
+
+    monkeypatch.setattr("newspaper.cli.maybe_spawn_generate", recover)
+    monkeypatch.setattr("threading.Timer", NowTimer)
+    monkeypatch.setattr("webbrowser.open", calls.opened.append)
+    monkeypatch.setattr("newspaper.schedule.keep_awake", keep_awake)
+    monkeypatch.setattr("uvicorn.run", uvicorn_run)
+    config = write_config(tmp_path, tmp_path / "data" / "newspaper.db")
+    result = CliRunner().invoke(main, ["--config", str(config), "web", *args])
+    for handler in logging.root.handlers[:]:  # serve() logs to web.log through the root logger
+        handler.close()
+        logging.root.removeHandler(handler)
+    return result, calls
+
+
+def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monkeypatch):
+    seen = {}
+
+    def uvicorn_run(app, **kwargs):
+        seen.update(kwargs)
+        logging.getLogger("uvicorn.error").error("Exception in ASGI application")
+
+    result, calls = run_web(tmp_path, monkeypatch, uvicorn_run, "--no-browser")
+
+    assert result.exit_code == 0, result.output
+    # log_config=None: uvicorn's default calls sys.stdout.isatty(), and pythonw has no stdout.
+    assert seen == {"host": "127.0.0.1", "port": 8765, "log_config": None}
+    assert (calls.recovered, calls.opened, calls.awake) == (1, [], ["on", "off"])
+    log = (tmp_path / "data" / "web.log").read_text(encoding="utf-8")
+    assert "uvicorn.error: Exception in ASGI application" in log
+
+
+def test_web_on_a_taken_port_points_to_the_running_server(tmp_path, monkeypatch):
+    def uvicorn_run(app, **kwargs):
+        raise SystemExit(3)  # uvicorn's STARTUP_FAILURE, after logging [Errno 10048]
+
+    result, calls = run_web(tmp_path, monkeypatch, uvicorn_run)
+
+    assert result.exit_code == 3
+    assert "Si ya hay un servidor" in result.output
+    assert calls.opened == ["http://127.0.0.1:8765/"]
+    assert (calls.recovered, calls.awake) == (1, ["on", "off"])

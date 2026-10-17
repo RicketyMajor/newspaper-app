@@ -208,13 +208,38 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
 
 def serve(config: NewspaperConfig, port: int = 8765, open_browser: bool = True) -> None:
+    import logging
     import threading
     import webbrowser
 
     import uvicorn
 
+    from .. import schedule
+
     url = f"http://127.0.0.1:{port}/"
+    log = Path(config.storage.database_path).expanduser().parent / "web.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    # The scheduled task runs under pythonw, with no console: bind errors and 500s (with their
+    # tracebacks) land here. ponytail: append-only and errors only; rotate it if it grows.
+    logging.basicConfig(
+        filename=log,
+        encoding="utf-8",
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s: %(message)s",
+        force=True,
+    )
     if open_browser:
         threading.Timer(1.0, webbrowser.open, [url]).start()
     print(f"Newspaper en {url} (Ctrl+C para salir)")
-    uvicorn.run(create_app(config), host="127.0.0.1", port=port, log_level="warning")
+    try:
+        # After the 06:00 wake Windows sleeps again unless asked; the phone needs it awake.
+        with schedule.keep_awake():
+            # log_config=None: uvicorn's default calls sys.stdout.isatty(); pythonw has None.
+            uvicorn.run(create_app(config), host="127.0.0.1", port=port, log_config=None)
+    except SystemExit as e:
+        if e.code == 3:  # uvicorn's STARTUP_FAILURE: in practice, the port is taken
+            print(
+                f"No se pudo usar el puerto {port}. Si ya hay un servidor (la tarea "
+                f"Newspaper web), está en {url} Detalle en {log}"
+            )
+        raise

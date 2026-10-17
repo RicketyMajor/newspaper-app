@@ -82,7 +82,8 @@ ES_SYSTEM_REQUIRED = 0x00000001
 
 @contextmanager
 def keep_awake() -> Iterator[None]:
-    """Ask Windows not to sleep while the edition is written (the task may have woken the PC)."""
+    """Ask Windows not to sleep while the edition is written or the web reader serves (the task
+    may have woken the PC, and Windows puts it back to sleep unless asked)."""
     if sys.platform != "win32":
         yield
         return
