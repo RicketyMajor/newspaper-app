@@ -74,6 +74,7 @@ def test_cli_schedule_install_runs_powershell(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "Register-ScheduledTask" in calls[0]
+    assert "Newspaper web" in result.output
 
 
 @pytest.fixture
@@ -118,3 +119,25 @@ def test_recovers_a_stale_run_even_if_its_pid_was_reused(config, engine, spawned
     with Session(engine) as s, s.begin():
         s.query(Edition).one().started_at = datetime(2026, 10, 9)
     assert gen.maybe_spawn_generate(config, now=AFTER_HOUR)
+
+
+def test_install_runs_the_web_server_task_and_fails_on_any_step(config):
+    script = schedule.install_script(config)
+    # A failed Register-ScheduledTask must fail install, not only the last command.
+    assert script.startswith("$ErrorActionPreference = 'Stop'")
+    prefix, edition, fetch, web = script.split("$action =")
+    assert "Stop-ScheduledTask -TaskName 'Newspaper web' -ErrorAction SilentlyContinue" in prefix
+    assert "web --no-browser" in web and "-AtLogOn" in web
+    assert "-RepetitionInterval (New-TimeSpan -Minutes 30)" in web  # back within 30 min
+    assert "-ExecutionTimeLimit (New-TimeSpan -Minutes 0)" in web  # no limit
+    assert "-WakeToRun" not in web
+    assert script.endswith("Start-ScheduledTask -TaskName 'Newspaper web'")
+    assert "-Daily -At '06:00'" in edition and " fetch'" in fetch
+
+
+def test_uninstall_stops_the_web_server_before_removing_the_tasks():
+    script = schedule.uninstall_script()
+    stop = script.index("Stop-ScheduledTask -TaskName 'Newspaper web'")
+    assert stop < script.index("Unregister-ScheduledTask -TaskName 'Newspaper web'")
+    for name in ("Newspaper", "Newspaper fetch", "Newspaper web"):
+        assert f"Unregister-ScheduledTask -TaskName '{name}'" in script

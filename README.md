@@ -45,7 +45,7 @@ The configuration is looked up in `./newspaper.toml`, then `~/.newspaper/newspap
 | `newspaper read` | Terminal reader. |
 | `newspaper web [--port 8765]` | Local web reader at `http://127.0.0.1:8765`. |
 | `newspaper status` | Today's edition status and the latest ready edition. |
-| `newspaper schedule install` | Windows scheduled tasks: the edition at `edition_hour` (wakes the PC from sleep, and keeps it awake until the edition is ready; runs at the next boot if the PC was off) and `fetch` every 30 minutes. |
+| `newspaper schedule install` | Windows scheduled tasks: the edition at `edition_hour` (wakes the PC from sleep, and keeps it awake until the edition is ready; runs at the next boot if the PC was off), `fetch` every 30 minutes, and the web reader (`Newspaper web`: at logon and checked every 30 minutes; it keeps the PC awake while it runs). Run it again after updating the code or `newspaper.toml`: it restarts the web server. |
 | `newspaper add-feed` / `list-feeds` | Manage sources. |
 
 Opening `read` or `web` after `edition_hour` starts today's edition in the background if it does not exist yet; meanwhile you read the previous one.
@@ -64,6 +64,16 @@ Opening `read` or `web` after `edition_hour` starts today's edition in the backg
 | `F` / `S` | favorites / saved |
 | `g` | latest front page |
 | `q` | quit |
+
+### Read on your phone (Tailscale)
+
+The web reader only listens on `127.0.0.1`. [Tailscale](https://tailscale.com) publishes it inside your own tailnet, never on the internet:
+
+1. Install Tailscale on the PC (`winget install Tailscale.Tailscale`) and sign in with the account your phone uses.
+2. In the Tailscale menu, turn on **Run unattended**. In the admin console, **disable key expiry** for this PC (keys expire after 180 days by default).
+3. `tailscale serve --bg --https=443 http://127.0.0.1:8765`, then open the `https://<pc>.<tailnet>.ts.net` address it prints on your phone. Chrome on Android offers **Install app**.
+
+`newspaper schedule install` keeps the server running (the `Newspaper web` task). The PC stays awake while it runs, so the phone can reach it after the 06:00 edition; a PC that was shut down (not asleep) stays off until you turn it on. Errors go to `web.log`, next to the database. Note that the HTTPS certificate publishes the `<pc>.<tailnet>.ts.net` name in public Certificate Transparency logs.
 
 ## Configuration knobs
 
