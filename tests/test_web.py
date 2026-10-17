@@ -215,3 +215,18 @@ def test_note_page_marks_its_section_in_the_nav(client, seeded):
 
 def test_masthead_links_to_search_for_small_screens(client, seeded):
     assert '<a class="search-link" href="/buscar">Buscar</a>' in client.get("/").text
+
+
+def test_manifest_lets_chrome_install_the_paper(client):
+    response = client.get("/manifest.webmanifest")
+    assert response.headers["content-type"].startswith("application/manifest+json")
+    manifest = response.json()
+    assert manifest["name"] == manifest["short_name"] == "Newspaper"
+    assert (manifest["start_url"], manifest["display"]) == ("/", "standalone")
+    sizes = {(icon["sizes"], icon["purpose"]) for icon in manifest["icons"]}
+    assert sizes == {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")}
+    for icon in manifest["icons"]:
+        assert client.get(icon["src"]).status_code == 200
+    page = client.get("/").text
+    assert '<link rel="manifest" href="/manifest.webmanifest">' in page
+    assert '<meta name="theme-color"' in page

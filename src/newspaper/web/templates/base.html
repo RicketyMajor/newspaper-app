@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ paper }}{% if paper_edition %} · {{ paper_edition.edition_date|long_date }}{% endif %}{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
   <script src="/static/app.js?v={{ static_v }}" defer></script>
 </head>
 <body data-today="{{ today_status or '' }}">

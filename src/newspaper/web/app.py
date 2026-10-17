@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -203,6 +203,28 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             "error": today.error if today else None,
             "latest": latest.edition_date.isoformat() if latest else None,
         }
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        # Chrome on Android installs the paper as an app from this (HTTPS by tailscale serve).
+        def icon(size: int, purpose: str) -> dict:
+            return {"src": f"/static/icon-{size}.png", "sizes": f"{size}x{size}",
+                    "type": "image/png", "purpose": purpose}  # fmt: skip
+
+        name = config.general.edition_name
+        return JSONResponse(
+            {
+                "name": name,
+                "short_name": name,
+                "start_url": "/",
+                "display": "standalone",
+                "background_color": "#f6f1e6",  # --paper
+                "theme_color": "#f6f1e6",
+                # The glyph sits inside the maskable safe zone: one image serves both purposes.
+                "icons": [icon(192, "any"), icon(512, "any"), icon(512, "maskable")],
+            },
+            media_type="application/manifest+json",
+        )
 
     return app
 
