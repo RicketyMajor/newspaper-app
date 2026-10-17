@@ -43,3 +43,11 @@ document.addEventListener("click", (event) => {
   item?.classList.add("is-read");
   item?.querySelector('form[action$="flag=read"] button')?.setAttribute("aria-pressed", "true");
 });
+
+// Phones: keep the current section in view in the one-row nav. Only nav.scrollLeft moves;
+// scrollIntoView would also scroll the page and undo the position Back restores.
+const nav = document.querySelector("nav.sections");
+const current = nav?.querySelector("[aria-current]");
+if (nav && current && nav.scrollWidth > nav.clientWidth) {
+  nav.scrollLeft = current.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2;
+}

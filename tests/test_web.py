@@ -198,3 +198,20 @@ def test_toggles_accept_this_site(client, seeded, site):
         f"/n/{seeded['front']}/estado", params={"flag": "favorite"}, headers=headers
     )
     assert response.json() == {"value": True}
+
+
+def test_search_page_has_its_own_form_and_no_second_one(client, seeded):
+    page = client.get("/buscar", params={"q": "pension"}).text
+    assert page.count('role="search"') == 1 and page.count('id="q"') == 1
+    assert 'value="pension"' in page
+    assert 'role="search"' in client.get("/").text  # other pages keep the masthead form
+
+
+def test_note_page_marks_its_section_in_the_nav(client, seeded):
+    page = client.get(f"/n/{seeded['world']}").text
+    assert '<a href="/e/2026-10-10/Mundo" aria-current="location">' in page
+    assert 'aria-current="page"' not in page
+
+
+def test_masthead_links_to_search_for_small_screens(client, seeded):
+    assert '<a class="search-link" href="/buscar">Buscar</a>' in client.get("/").text

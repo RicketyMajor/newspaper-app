@@ -19,19 +19,22 @@
       {% if paper_edition %}
       {% set notes = paper_edition.notes %}
       <span>{{ paper_edition.edition_date|long_date }}</span>
-      <span class="progress">{{ notes|length }}&nbsp;{{ 'nota' if notes|length == 1 else 'notas' }} · {{ notes|sum(attribute='read_minutes') }}&nbsp;min · {{ notes|selectattr('is_read')|list|length }}&nbsp;leídas</span>
+      <span class="progress">{{ notes|length }}&nbsp;{{ 'nota' if notes|length == 1 else 'notas' }} · {{ notes|sum(attribute='read_minutes') }}&nbsp;min · {% set read = notes|selectattr('is_read')|list|length %}{{ read }}&nbsp;{{ 'leída' if read == 1 else 'leídas' }}</span>
       {% else %}
       <span>Diario personal</span>
       {% endif %}
+      {% if here != '/buscar' %}{# the search page has its own form: one id="q" per page #}
       <form class="search" action="/buscar" role="search">
         <label for="q" class="sr-only">Buscar</label>
         <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}">
       </form>
+      <a class="search-link" href="/buscar">Buscar</a>
+      {% endif %}
     </div>
     <nav class="sections" aria-label="Secciones">
-      {% macro navlink(href, label) %}<a href="{{ href }}"{% if here == href %} aria-current="page"{% endif %}>{{ label }}</a>{% endmacro %}
+      {% macro navlink(href, label, location=False) %}<a href="{{ href }}"{% if here == href %} aria-current="page"{% elif location %} aria-current="location"{% endif %}>{{ label }}</a>{% endmacro %}
       {{ navlink('/', 'Portada') }}
-      {% for name, _ in nav_sections %}{{ navlink('/e/' ~ paper_edition.edition_date ~ '/' ~ name, name) }}{% endfor %}
+      {% for name, _ in nav_sections %}{{ navlink('/e/' ~ paper_edition.edition_date ~ '/' ~ name, name, note is defined and note and note.section == name) }}{% endfor %}
       {{ navlink('/archivo', 'Archivo') }}
       {{ navlink('/favoritos', 'Favoritos') }}
       {{ navlink('/guardados', 'Guardados') }}

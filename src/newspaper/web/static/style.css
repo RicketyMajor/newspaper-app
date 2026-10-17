@@ -82,6 +82,7 @@ p.nameplate { font-size: clamp(2rem, 5vw, 3rem); }  /* inside pages: a folio, no
   font: 0.85rem var(--sans);
 }
 .search input::placeholder { color: var(--muted); opacity: 1; }
+.search-link { display: none; }
 nav.sections {
   display: flex;
   flex-wrap: wrap;
@@ -94,7 +95,7 @@ nav.sections {
   text-transform: uppercase;
 }
 nav.sections a { text-decoration: none; }
-nav.sections a[aria-current="page"] {
+nav.sections a[aria-current] {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.35em;
@@ -259,9 +260,31 @@ code { font-size: 0.9em; }
 
 @media (max-width: 760px) {
   body { font-size: 17px; }
-  .masthead { padding-top: 1rem; }
-  .dateline { flex-direction: column; }
+  .masthead { padding-top: 0.4rem; }
+  .nameplate { font-size: 2rem; }
+  p.nameplate { font-size: 1.6rem; }
+  .dateline { margin-top: 0.4rem; padding: 0.3rem 0; gap: 0.1rem 0.75rem; }
+  /* The masthead form costs a row; search lives on its own page. */
+  .masthead .search { display: none; }
+  /* A taller hit area than the line it sits on, without moving the line. */
+  .search-link { display: inline-block; margin: -0.75rem 0; padding: 0.75rem 0 0.75rem 0.75rem; }
+  .page-search { margin: 1rem 0 0; }
+  .section-title.page { margin-top: 1rem; }
   .search input { width: 100%; font-size: 16px; }  /* iOS zooms into smaller inputs */
-  .search { width: 100%; }
-  .note { margin-top: 1.5rem; }
+  /* One scrolling row instead of three wrapped ones. */
+  nav.sections {
+    position: relative;  /* offsetLeft of the links, for app.js */
+    flex-wrap: nowrap;
+    justify-content: safe center;  /* plain center would clip "Portada" out of reach */
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+  }
+  nav.sections::-webkit-scrollbar { display: none; }
+  .note { margin-top: 0.75rem; }
+}
+
+/* Phones: the 44 px links already give the row its height. */
+@media (max-width: 760px) and (pointer: coarse) {
+  nav.sections { padding: 0; }
 }

@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Buscar · {{ paper }}{% endblock %}
 {% block content %}
+<form class="search page-search" action="/buscar" role="search">
+  <label for="q" class="sr-only">Buscar</label>
+  <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}"{% if not q %} autofocus{% endif %}>
+</form>
 <h2 class="section-title page">Resultados{% if q %} para «{{ q }}»{% endif %}</h2>
 <ul class="plain results">
   {% for h in hits %}
