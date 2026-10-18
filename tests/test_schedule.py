@@ -55,6 +55,24 @@ def test_keep_awake_holds_the_request_until_the_edition_ends(monkeypatch):
     assert states[-1] == schedule.ES_CONTINUOUS
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_renews_the_request_that_sleep_drops(monkeypatch):
+    # 2026-10-18: the web server held the request at 13:06 and had lost it after a sleep at
+    # 13:08; the PC also slept at 06:13 right after the edition, with the server running.
+    import ctypes
+    import time
+
+    states = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=states.append)
+    )
+    monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
+    with schedule.keep_awake():
+        time.sleep(0.1)
+    held = states.count(schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED)
+    assert held >= 3 and states[-1] == schedule.ES_CONTINUOUS
+
+
 def test_keep_awake_does_nothing_off_windows(monkeypatch):
     monkeypatch.setattr(schedule.sys, "platform", "linux")
     with schedule.keep_awake():

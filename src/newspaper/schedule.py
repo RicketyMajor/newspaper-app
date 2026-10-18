@@ -105,6 +105,9 @@ def install_script(config: NewspaperConfig) -> str:
 
 ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
+# Windows drops the request when the PC sleeps and doesn't restore it on wake (seen 2026-10-18),
+# and after an unattended wake it sleeps again within ~2 min: renew well inside that.
+RENEW_SECONDS = 60
 
 
 @contextmanager
@@ -115,13 +118,27 @@ def keep_awake() -> Iterator[None]:
         yield
         return
     import ctypes
+    import threading
 
     kernel32 = ctypes.windll.kernel32
-    kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    held, done = threading.Event(), threading.Event()
+
+    def hold() -> None:  # the request belongs to this thread
+        while True:
+            kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+            held.set()
+            if done.wait(RENEW_SECONDS):
+                break
+        kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+
+    thread = threading.Thread(target=hold, name="keep-awake", daemon=True)
+    thread.start()
+    held.wait()
     try:
         yield
     finally:
-        kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+        done.set()
+        thread.join()
 
 
 def uninstall_script() -> str:
