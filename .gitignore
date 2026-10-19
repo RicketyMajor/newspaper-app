@@ -52,3 +52,8 @@ prompt.md
 
 # Impeccable critique snapshots (local)
 .impeccable/
+# Impeccable product and design records (local, like context/)
+/PRODUCT.md
+/DESIGN.md
+# playwright-cli session files
+.playwright-cli/
