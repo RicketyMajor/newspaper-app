@@ -240,3 +240,17 @@ def test_toggle_form_without_js_from_this_site_still_redirects(client, seeded):
         f"/n/{note}/estado", params={"flag": "saved"}, headers=headers, follow_redirects=False
     )
     assert (response.status_code, response.headers["location"]) == (303, f"/n/{note}")
+
+
+def test_work_titles_in_headline_and_dek_render_in_italics_and_html_stays_escaped(
+    client, engine, seeded
+):
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["world"])
+        note.headline = "Película chilena *Hijas Únikas* triunfa"
+        note.dek = "Se estrena con <b>éxito</b>."
+    front, page = client.get("/").text, client.get(f"/n/{seeded['world']}").text
+    for html in (front, page):
+        assert "Película chilena <em>Hijas Únikas</em> triunfa" in html
+        assert "&lt;b&gt;éxito&lt;/b&gt;" in html
+    assert "<title>Película chilena Hijas Únikas triunfa ·" in page  # no asterisks in the tab

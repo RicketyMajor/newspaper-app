@@ -11,7 +11,7 @@ import os
 import re
 from array import array
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
@@ -20,7 +20,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from ..ai.ollama import NEUTRAL_TOPICS, Ollama, OllamaError, OllamaUnavailableError
+from ..ai.ollama import NEUTRAL_TOPICS, Draft, Ollama, OllamaError, OllamaUnavailableError
 from ..config.models import InterestsConfig, NewspaperConfig
 from ..ingestion.extract import extract_many
 from ..ingestion.rss import fetch_feed, make_client
@@ -47,6 +47,42 @@ _FIRST_LETTER = re.compile(r"^([^\w`]*)([^\W\d_])")
 def _starts_lower(text: str) -> bool:
     m = _FIRST_LETTER.match(text)
     return m is not None and m[2].islower()
+
+
+# A straight quote inside a JSON string ends it early: "Juzgan a los creadores del bulo del" (#16).
+_FUNCTION_WORDS = frozenset(
+    "a al ante con contra de del desde e el en entre hacia hasta la las lo los ni o para por "  # noqa: SIM905
+    "que se según sin sobre su sus tras u un una unas unos y "
+    "an and at by for from in of on the to with".split()
+)
+_SENTENCE_END = tuple(".!?…»”)*")
+# The model sometimes leaves HTML or the JSON's braces in the body; the web shows them as text.
+# Only the tags it has been seen to write: an autolink <https://…> or `vector<int>` must stay.
+# Block tags become paragraph breaks so "<li>10</li><li>20</li>" stays two items.
+# The name must end at a space, "/" or ">": <a.vera@example.org> is an email autolink.
+# ponytail: a tag inside a code span goes too; news bodies have had none.
+_BLOCK_TAG = re.compile(
+    r"</?(?:blockquote|br|div|h[1-6]|li|ol|p|table|td|th|tr|ul)(?=[\s/>])[^<>]*>", re.IGNORECASE
+)
+_INLINE_TAG = re.compile(r"</?(?:a|b|em|i|span|strong|u)(?=[\s/>])[^<>]*>", re.IGNORECASE)
+_BRACE_LINE = re.compile(r"^[ \t\xa0]*[{}][ \t\xa0{}]*$", re.MULTILINE)
+_LINE_END_SPACE = re.compile(r"[ \t\xa0]+\n")
+_EXTRA_BREAKS = re.compile(r"\n{3,}")
+
+
+def _cut(d: Draft) -> bool:
+    # Case kept and hyphens joined: a cut ends in "del" or "un", never in "18-O" or "vitamina A".
+    words = re.findall(r"[\w-]+", d.headline)
+    dek = d.dek.rstrip()
+    return (bool(words) and words[-1] in _FUNCTION_WORDS) or (
+        bool(dek) and not dek.endswith(_SENTENCE_END)
+    )
+
+
+def _clean_text(text: str) -> str:
+    text = _BRACE_LINE.sub("", _INLINE_TAG.sub("", _BLOCK_TAG.sub("\n\n", text)))
+    text = _EXTRA_BREAKS.sub("\n\n", _LINE_END_SPACE.sub("\n", text))
+    return text.strip(" \t\n\xa0{}")
 
 
 def _capitalize(text: str) -> str:
@@ -298,7 +334,8 @@ def _draft(llm: Ollama, sel: Selected, language: str, log: Callable[[str], None]
     single = len({a.source_name for a in sel.items}) == 1
     title = sel.items[0].title
     best = None
-    # Sampling sometimes yields bad JSON, an empty body or a lowercase headline: retry once.
+    # Sampling sometimes yields bad JSON, an empty body, a lowercase headline or a headline cut
+    # by a quote: retry once.
     for attempt in (1, 2):
         try:
             d = llm.draft(_materials(sel.items), language, retry=attempt > 1)
@@ -307,14 +344,23 @@ def _draft(llm: Ollama, sel: Selected, language: str, log: Callable[[str], None]
         except OllamaError as e:
             log(f"  Intento {attempt} fallido ({title}): {e}")
             continue
+        # Clean first: a body of nothing but leftovers is an empty body, and gets retried.
+        d = replace(d, body=_clean_text(d.body), differences=_clean_text(d.differences))
         if not (d.headline and d.body):
             log(f"  Intento {attempt} fallido ({title}): titular o cuerpo vacío")
             continue
-        if not _starts_lower(d.headline):
+        if _starts_lower(d.headline):
+            problem = "titular en minúscula"
+        elif _cut(d):
+            problem = "titular o bajada cortados"
+        else:
             best = d
             break
-        log(f"  Intento {attempt}: titular en minúscula ({title})")
-        best = best or d  # keep the first one in case the retry does no better
+        log(f"  Intento {attempt}: {problem} ({title})")
+        # Keep the first in case the retry does no better, unless it lost words to a quote and
+        # the retry did not: capitalizing fixes a lowercase headline, nothing brings words back.
+        if best is None or (_cut(best) and not _cut(d)):
+            best = d
     if best is None:
         log(f"  Publicada sin redactar ({title})")
         # Fallback: the original headlines and excerpts, clearly labelled as not drafted.

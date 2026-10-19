@@ -42,6 +42,9 @@ NUM_CTX = 8192
 # 0.7 temperature failed 2/5 (2026-10-14). Retry only: on every call it made 4/32 bodies open
 # with a "#" title, which the prompt forbids (0 in ~135 notes without it).
 REPEAT_PENALTY = 1.15
+# A straight quote inside a JSON string ends it: "…del bulo del" (#16). Retry only, like the
+# penalty: the main prompt already asks for «…», and prompt changes have caused regressions.
+RETRY_RULE = "- In the headline and the dek never use quotation marks of any kind.\n"
 
 SYSTEM_PROMPT = """\
 You are the editor of a personal daily newspaper. You receive one or more articles, \
@@ -145,6 +148,8 @@ class Ollama:
             )
         )
         system = SYSTEM_PROMPT.format(language=LANGUAGE_NAMES.get(language, language))
+        if retry:
+            system += RETRY_RULE
         data = self._post(
             "/api/chat",
             {

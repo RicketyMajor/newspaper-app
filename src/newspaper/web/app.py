@@ -38,6 +38,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     # LLM/RSS text is untrusted: no raw HTML, no external images (tracking pixels).
     markdown = MarkdownIt("commonmark", {"html": False}).disable("image")
     templates.env.filters["markdown"] = markdown.render
+    # Headlines and deks are plain text but for *work titles* in italics; HTML stays escaped.
+    templates.env.filters["inline"] = MarkdownIt("zero").enable("emphasis").renderInline
     templates.env.filters["long_date"] = long_date
     # Cache-busting for /static after an upgrade: the newest file's mtime.
     templates.env.globals["static_v"] = int(max(p.stat().st_mtime for p in STATIC.iterdir()))

@@ -111,6 +111,11 @@ def test_interest_label_in_note_lists():
     assert interest_label(Note(section="Mundo", headline="H", read_minutes=1)) is None
 
 
+def test_note_lists_drop_the_asterisks_of_work_titles():
+    note = Note(section="Cultura", headline="Película *Hijas Únikas* triunfa", read_minutes=1)
+    assert note_text(note).plain.startswith("Película Hijas Únikas triunfa")
+
+
 def test_readers_do_not_import_the_generator():
     # `newspaper read` should start fast: no extraction, embeddings or LLM client on import.
     code = (

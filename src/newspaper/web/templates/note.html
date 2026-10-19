@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import outlets, tags, original, toggles with context %}
-{% block title %}{{ note.headline }} · {{ paper }}{% endblock %}
+{% block title %}{{ note.headline|replace('*', '') }} · {{ paper }}{% endblock %}
 {% block nameplate %}<p class="nameplate"><a href="/">{{ paper }}</a></p>{% endblock %}
 {% block content %}
 <article class="note">
   <p class="kicker"><a href="/e/{{ edition.edition_date }}/{{ note.section }}">{{ note.section }}</a></p>
-  <h1>{{ note.headline }}</h1>
-  {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
+  <h1>{{ note.headline|inline|safe }}</h1>
+  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min de lectura {{ tags(note) }}</p>
   {% if note.single_source or note.excerpt_only or not note.drafted or note.interest %}
   <ul class="caveats">
@@ -41,7 +41,7 @@
     <nav class="next" aria-label="Siguiente nota">
       <p class="meta">Nota {{ position }} de {{ total }}</p>
       {% if next_note %}
-      <a href="/n/{{ next_note.id }}"><span class="next-label">Siguiente</span> {{ next_note.headline }}</a>
+      <a href="/n/{{ next_note.id }}"><span class="next-label">Siguiente</span> {{ next_note.headline|inline|safe }}</a>
       {% else %}
       <p class="next-label">Fin de la edición.</p>
       {% endif %}

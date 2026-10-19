@@ -78,6 +78,21 @@ def test_draft_retry_uses_a_repeat_penalty():
     assert seen["options"]["repeat_penalty"] == 1.15  # stops gemma3's runaway no-break spaces
 
 
+def test_only_the_retry_forbids_quotes_in_headline_and_dek():
+    systems = []
+
+    def handler(request):
+        systems.append(json.loads(request.content)["messages"][0]["content"])
+        content = {"headline": "t", "dek": "", "body": "b", "differences": ""}
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    llm = ollama_with(handler)
+    llm.draft([("CIPER", "t", "x")], "es")
+    llm.draft([("CIPER", "t", "x")], "es", retry=True)
+    rule = "In the headline and the dek never use quotation marks"
+    assert [rule in system for system in systems] == [False, True]
+
+
 def test_draft_material_never_contains_straight_double_quotes():
     # The JSON grammar ends a field at a raw ", and gemma3 copies quotes from the material.
     seen = {}

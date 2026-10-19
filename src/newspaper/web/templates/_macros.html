@@ -16,8 +16,8 @@
     {%- if kicker %}{{ note.section }}{% endif %}{% if kicker and note.is_favorite %} · {% endif %}
     {%- if note.is_favorite %}<span aria-hidden="true">★</span><span class="sr-only">Favorito</span>{% endif -%}
   </p>{% endif %}
-  <h3><a href="/n/{{ note.id }}">{% if note.is_read %}<span class="sr-only">Leída: </span>{% endif %}{{ note.headline }}</a></h3>
-  {% if note.dek %}<p class="dek">{{ note.dek }}</p>{% endif %}
+  <h3><a href="/n/{{ note.id }}">{% if note.is_read %}<span class="sr-only">Leída: </span>{% endif %}{{ note.headline|inline|safe }}</a></h3>
+  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
   {% if lead %}<div class="lede">{{ note.body|lede|markdown|safe }}</div>{% endif %}
   <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min {{ tags(note) }}</p>
   {% if lead and note.differences %}<p class="teaser"><a href="/n/{{ note.id }}#difieren">Ver dónde difieren los medios</a></p>{% endif %}

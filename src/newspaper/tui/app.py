@@ -52,7 +52,8 @@ def note_text(note: Note) -> Text:
         (interest_label(note), note.interest is not None),
     ) if on]  # fmt: skip
     style = "dim" if note.is_read else "bold"
-    return Text.assemble((marks(note) + note.headline, style), "\n", (" · ".join(meta), "dim"))
+    headline = note.headline.replace("*", "")  # *work titles*: the web sets them in italics
+    return Text.assemble((marks(note) + headline, style), "\n", (" · ".join(meta), "dim"))
 
 
 def article_text(article: Article) -> Text:
@@ -226,7 +227,7 @@ class NoteScreen(ReaderScreen):
             self.show_flags(s, "note", self.note_id)
             parts = [f"# {note.headline}"]
             if note.dek:
-                parts.append(f"*{note.dek}*")
+                parts.append(f"*{note.dek.replace('*', '')}*")
             parts.append(note.body)
             if note.differences:
                 parts.append(f"## Dónde difieren\n\n{note.differences}")

@@ -289,6 +289,96 @@ def test_lowercase_draft_is_published_capitalized_if_the_retry_does_not_help(ret
     )
 
 
+CUT = Draft("Juzgan a los creadores del bulo del", "Un juicio.", "Cuerpo.", "")
+CUT_DEK = Draft("Zelenski advierte a EE. UU.", "Dice que el apoyo a Rusia sería un", "Cuerpo.", "")
+
+
+@pytest.mark.parametrize("cut", [CUT, CUT_DEK])
+def test_a_headline_or_dek_cut_by_a_quote_is_redrafted(cut):
+    logged = []
+    llm = ScriptedLLM(cut, UPPER)
+    note = _draft(llm, one_article_selection(), "es", log=logged.append)
+    assert (note.headline, llm.retries) == (UPPER.headline, [False, True])
+    assert logged == ["  Intento 1: titular o bajada cortados (Lluvias en Santiago)"]
+
+
+def test_a_cut_draft_is_published_if_the_retry_is_cut_too():
+    note = _draft(ScriptedLLM(CUT, CUT_DEK), one_article_selection(), "es", log=lambda _m: None)
+    assert (note.headline, note.drafted) == (CUT.headline, True)  # the first, as with lowercase
+
+
+def test_a_lowercase_retry_beats_a_cut_first_draft():
+    # Capitalizing fixes a lowercase headline; nothing brings back the words a quote cut off.
+    note = _draft(ScriptedLLM(CUT, LOWER), one_article_selection(), "es", log=lambda _m: None)
+    assert note.headline == "Suspenden clases en santiago"
+
+
+@pytest.mark.parametrize(
+    "headline, dek",
+    [
+        ("Película chilena *Hijas Únikas* triunfa en Valdivia", "Se estrena en *Guerra de verano*"),
+        ("Plan de vivienda llega a 30 comunas", "Es la mayor ampliación desde 2019…"),
+        ("El gobierno responde", ""),
+        ("Gobierno anuncia seguimiento a detenidos tras las protestas del 18-O", "Lo dijo."),
+        ("Nuevo estudio sobre la vitamina A", "Es un ensayo."),
+    ],
+)
+def test_complete_headlines_and_deks_are_not_cut(headline, dek):
+    llm = ScriptedLLM(Draft(headline, dek, "Cuerpo.", ""))
+    _draft(llm, one_article_selection(), "es", log=lambda _m: None)
+    assert llm.retries == [False]
+
+
+def test_published_body_drops_stray_tags_and_braces():
+    body = (
+        "Primer párrafo.\n\nDice que x < 5 y y > 2. <ul><li>Según *El País*, sí.</li></ul>"
+        " } </div>\n} \xa0\n{"
+    )
+    two_outlets = SimpleNamespace(
+        items=[*one_article_selection().items, SimpleNamespace(
+            source_name="CIPER", title="Lluvias", content="Texto.", summary="Res."
+        )]
+    )  # fmt: skip
+    note = _draft(
+        ScriptedLLM(Draft("Titular", "Bajada.", body, "<p>Difieren.</p>\n}")),
+        two_outlets, "es", log=lambda _m: None,
+    )  # fmt: skip
+    assert note.body == "Primer párrafo.\n\nDice que x < 5 y y > 2.\n\nSegún *El País*, sí."
+    assert note.differences == "Difieren."
+
+
+def test_cleanup_keeps_blocks_apart():
+    body = "Balance: <ul><li>10 muertos</li><li>20 heridos</li></ul>Fin.<br>Otra línea."
+    note = _draft(
+        ScriptedLLM(Draft("Titular", "Bajada.", body, "")),
+        one_article_selection(), "es", log=lambda _m: None,
+    )  # fmt: skip
+    assert note.body == "Balance:\n\n10 muertos\n\n20 heridos\n\nFin.\n\nOtra línea."
+
+
+def test_cleanup_keeps_autolinks_and_angle_brackets_that_are_not_html():
+    body = (
+        "Informe en <https://example.org/informe>. Usa `vector<int>` y a<b>c</b>."
+        " Escribe a <a.vera@example.org> o <p.ramos@ciper.cl>."
+    )
+    note = _draft(
+        ScriptedLLM(Draft("Titular", "Bajada.", body, "")),
+        one_article_selection(), "es", log=lambda _m: None,
+    )  # fmt: skip
+    assert note.body == (
+        "Informe en <https://example.org/informe>. Usa `vector<int>` y ac."
+        " Escribe a <a.vera@example.org> o <p.ramos@ciper.cl>."
+    )
+
+
+def test_a_body_of_only_leftovers_counts_as_empty_and_is_retried():
+    logged = []
+    llm = ScriptedLLM(Draft("Titular", "Bajada.", "<p></p>\n}", ""), UPPER)
+    note = _draft(llm, one_article_selection(), "es", log=logged.append)
+    assert (note.headline, note.drafted) == (UPPER.headline, True)
+    assert logged == ["  Intento 1 fallido (Lluvias en Santiago): titular o cuerpo vacío"]
+
+
 def test_capitalize_skips_leading_punctuation_and_leaves_numbers_alone():
     assert _capitalize("¿qué pasó?") == "¿Qué pasó?"
     assert _capitalize("«la nota»") == "«La nota»"
