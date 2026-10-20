@@ -90,6 +90,14 @@ def test_saved_merges_favorites_and_saved_and_old_urls_redirect(client, seeded):
         assert (r.status_code, r.headers["location"]) == (301, f"/guardado?f={new}")
 
 
+def test_an_original_favorited_elsewhere_can_still_be_unfavorited(client, seeded):
+    article = seeded["articles"][0]
+    unfav = f'action="/a/{article}/estado?flag=favorite"'
+    assert unfav not in client.get(f"/n/{seeded['front']}").text  # originals: Leído · Guardar
+    client.post(f"/a/{article}/estado?flag=favorite")  # e.g. from the TUI
+    assert unfav in client.get("/guardado?f=favoritos").text
+
+
 def test_search_hits_name_the_day_and_section_of_notes(client, seeded):
     page = client.get("/buscar?q=senado").text
     assert "10 de octubre" in page and "Chile" in page

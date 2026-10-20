@@ -20,12 +20,15 @@ document.addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   const button = form.querySelector("button");
-  const res = await fetch(form.action, {
+  // Send the state the button promises, not a toggle: a mark landing meanwhile (the automatic
+  // one at the sources) can't turn the press into its opposite.
+  const url = new URL(form.action);
+  url.searchParams.set("value", String(button.getAttribute("aria-pressed") !== "true"));
+  const res = await fetch(url, {
     method: "POST",
     headers: { Accept: "application/json" },
   }).catch(() => null);
   if (!res || !res.ok) {
-    // Never re-post: the server may have applied it already and a second POST would undo it.
     live.textContent = "No se pudo guardar el cambio. Recarga la página.";
     return;
   }
@@ -34,7 +37,9 @@ document.addEventListener("submit", async (event) => {
   if (new URL(form.action).searchParams.get("flag") === "read") {
     form.closest("li")?.classList.toggle("is-read", value);  // an original's title styling
     // Unmarking the note takes back the "Leída · el sol subió" line the auto-mark showed.
-    if (!value) form.closest("article.note")?.querySelector(".done")?.setAttribute("hidden", "");
+    // Only the note's own toggle: an original's sits in the same article.
+    const own = form.closest("article.note > .toggles");
+    if (!value && own) own.parentElement.querySelector(".done")?.setAttribute("hidden", "");
   }
   live.textContent = `${button.lastChild.textContent.trim()}: ${value ? "sí" : "no"}`;
 });

@@ -36,15 +36,18 @@
 {# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it). #}
 {% set FLAGS = {
   'n': [('read', 'is_read', 'Leída', '✓'), ('favorite', 'is_favorite', 'Favorita', '★'), ('saved', 'is_saved', 'Guardar', '✓')],
-  'a': [('read', 'is_read', 'Leído', '✓'), ('saved', 'is_saved', 'Guardar', '✓')],
+  'a': [('read', 'is_read', 'Leído', '✓'), ('favorite', 'is_favorite', 'Favorito', '★'), ('saved', 'is_saved', 'Guardar', '✓')],
 } %}
 
 {% macro toggles(kind, obj) %}
 <div class="toggles">
   {% for flag, attr, label, glyph in FLAGS[kind] %}
+  {# Originals offer Leído · Guardar; Favorito only to undo one marked before or in the TUI. #}
+  {% if kind == 'n' or flag != 'favorite' or obj.is_favorite %}
   <form method="post" action="/{{ kind }}/{{ obj.id }}/estado?flag={{ flag }}">
     <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}"><span class="glyph" aria-hidden="true">{{ glyph }} </span>{{ label }}</button>
   </form>
+  {% endif %}
   {% endfor %}
 </div>
 {% endmacro %}
