@@ -126,10 +126,6 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         found = queries.get_note(s, note_id)
         if found is None:
             raise HTTPException(404, "Nota no encontrada")
-        # Opening marks it read; un-marking it (fetch, no reload) sticks until the next visit,
-        # like `m` in the TUI.
-        queries.set_flag(s, "note", note_id, "read", True)
-        s.commit()
         notes = found.edition.notes  # edition order (rank)
         i = [n.id for n in notes].index(note_id)
         next_note = notes[i + 1] if i + 1 < len(notes) else None
@@ -155,6 +151,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         kind: Literal["n", "a"],
         obj_id: int,
         flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
+        value: bool | None = None,  # set it (app.js marks a finished note); without it, toggle
     ):
         # Another site's form (any page open in the phone or PC browser) must not flip marks.
         # same-site is not enough: it ignores the port. ponytail: no header passes (old browsers
@@ -162,7 +159,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         if request.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
             raise HTTPException(403, "Ese cambio llegó desde otro sitio.")
         try:
-            value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag)
+            value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag, value)
         except LookupError as e:
             raise HTTPException(404, str(e)) from e
         s.commit()

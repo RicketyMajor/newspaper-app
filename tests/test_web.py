@@ -62,13 +62,21 @@ def test_empty_state_without_editions(client):
     assert "Todavía no hay ediciones" in response.text
 
 
-def test_note_page_shows_sources_and_marks_read(client, engine, seeded):
+def test_opening_a_note_shows_sources_and_does_not_mark_it_read(client, engine, seeded):
     page = client.get(f"/n/{seeded['front']}").text
     assert "Dónde difieren" in page
     assert "CIPER destaca el costo fiscal" in page
     assert f"/a/{seeded['articles'][0]}" in page
     with Session(engine) as s:
-        assert s.get(Note, seeded["front"]).is_read
+        assert not s.get(Note, seeded["front"]).is_read  # it counts when finished (app.js)
+
+
+def test_value_sets_a_flag_instead_of_toggling(client, seeded):
+    url = f"/n/{seeded['front']}/estado?flag=read&value=true"
+    for _ in range(2):  # reaching the end twice (a reload) must not unmark it
+        assert client.post(url, headers={"Accept": "application/json"}).json() == {"value": True}
+    off = f"/n/{seeded['front']}/estado?flag=read&value=false"
+    assert client.post(off, headers={"Accept": "application/json"}).json() == {"value": False}
 
 
 def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):
