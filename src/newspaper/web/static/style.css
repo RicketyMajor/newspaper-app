@@ -395,7 +395,7 @@ body.noon .colophon { display: none; }
   width: 100%;
   min-height: 48px;
   padding: 0 18px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--muted);  /* an input's edge needs 3:1 (WCAG 1.4.11) */
   border-radius: 24px;
   background: var(--card);
   color: var(--ink);
@@ -429,6 +429,7 @@ body.noon .colophon { display: none; }
 .empty svg { display: block; width: 200px; height: 60px; margin: 0 auto 20px; overflow: hidden; color: var(--ink); }
 .empty h1 { font-weight: 300; font-size: 32px; line-height: 1.15; }
 .empty p { margin-top: 12px; }
+.empty a { display: inline-flex; align-items: center; min-height: 44px; }
 .empty code { font-size: 0.85em; }
 
 /* Shortcuts dialog (? on a keyboard) */
