@@ -80,6 +80,7 @@ def test_notes_after_the_core_count_as_more_and_end_the_edition(client, engine, 
 def test_noon_page_closes_the_core(client, seeded):
     page = client.get("/fin/2026-10-10").text
     assert "Pleno día." in page and "Terminaste lo esencial" in page
+    assert "de 2&nbsp;secciones" in page  # Chile is only on the front page, and still counts
     assert "Te faltan 2 de lo esencial" in page
     assert "cerca de las 06:15" in page  # edition_hour 6
     assert client.get("/fin/2099-01-01").status_code == 404

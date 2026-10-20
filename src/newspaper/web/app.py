@@ -169,6 +169,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         return render(
             request, s, "end.html", edition=found, core_total=len(core),
             core_minutes=sum(n.read_minutes for n in core), bands=bands,
+            core_sections=len({n.section for n in core}),
             first_rest=rest[0] if rest else None, core_left=sum(not n.is_read for n in core),
             next_hour=f"{config.general.edition_hour:02d}:15",
         )  # fmt: skip

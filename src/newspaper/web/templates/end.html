@@ -12,8 +12,7 @@
     <line x1="0" y1="118" x2="200" y2="118" stroke="currentColor"/>
   </svg>
   <h1>Pleno día.</h1>
-  {% set sections = bands|rejectattr(0, 'eq', 'Portada')|list|length %}
-  <p class="lead">Terminaste lo esencial: {{ core_total }}&nbsp;{{ 'nota' if core_total == 1 else 'notas' }}, {{ core_minutes }}&nbsp;minutos, de {{ sections }}&nbsp;{{ 'sección' if sections == 1 else 'secciones' }}.</p>
+  <p class="lead">Terminaste lo esencial: {{ core_total }}&nbsp;{{ 'nota' if core_total == 1 else 'notas' }}, {{ core_minutes }}&nbsp;minutos, de {{ core_sections }}&nbsp;{{ 'sección' if core_sections == 1 else 'secciones' }}.</p>
   {% if core_left %}<p class="left">Te faltan {{ core_left }} de lo esencial. <a href="/e/{{ edition.edition_date }}">Volver a ellas</a></p>{% endif %}
   <p class="chips">{% for name, n in bands %}<span>{{ name }} {{ n }}</span>{% endfor %}</p>
   <div class="cta">
