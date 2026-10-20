@@ -72,6 +72,19 @@ def section_counts(s: Session, edition_id: int) -> list[tuple[str, int]]:
     return [(section, count) for section, count in s.execute(stmt)]
 
 
+def reading_order(notes: list[Note]) -> tuple[list[Note], list[Note]]:
+    """(core, rest) of an edition's notes in rank order. The core is what the day's reading
+    can finish: the front page, then the first note of each section outside it. The reading
+    path is core + rest."""
+    firsts: dict[str, Note] = {}
+    for note in notes:
+        if not note.is_front:
+            firsts.setdefault(note.section, note)
+    core = [n for n in notes if n.is_front] + list(firsts.values())
+    rest = [n for n in notes if n not in core]  # ponytail: O(n²) on ~40 notes
+    return core, rest
+
+
 def get_note(s: Session, note_id: int) -> Note | None:
     stmt = select(Note).where(Note.id == note_id)
     return s.scalars(stmt.options(selectinload(Note.articles), selectinload(Note.edition))).first()

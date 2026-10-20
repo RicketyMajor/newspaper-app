@@ -51,6 +51,28 @@ def test_front_page_sections_and_note(engine, seeded):
         assert [a.source_name for a in note.articles] == ["CIPER", "Cooperativa"]
 
 
+def _n(i, section, front=False):
+    return Note(id=i, section=section, rank=i, is_front=front, headline=f"N{i}")
+
+
+def test_core_is_the_front_page_plus_the_first_note_of_each_section():
+    notes = [
+        _n(0, "Mundo", True), _n(1, "Mundo", True), _n(2, "Cultura", True),
+        _n(3, "Chile"), _n(4, "Chile"), _n(5, "Mundo"), _n(6, "Ciencia"),
+        _n(7, "Ciencia"), _n(8, "Cultura"),
+    ]  # fmt: skip
+    core, rest = queries.reading_order(notes)
+    assert [n.id for n in core] == [0, 1, 2, 3, 5, 6, 8]
+    assert [n.id for n in rest] == [4, 7]
+
+
+def test_core_without_front_page_or_with_one_note():
+    assert [n.id for n in queries.reading_order([_n(0, "A"), _n(1, "A"), _n(2, "B")])[0]] == [0, 2]
+    only = _n(0, "A", True)
+    assert queries.reading_order([only]) == ([only], [])
+    assert queries.reading_order([]) == ([], [])
+
+
 def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):
     with Session(engine) as s, s.begin():
         assert queries.set_flag(s, "note", seeded["front"], "favorite") is True
