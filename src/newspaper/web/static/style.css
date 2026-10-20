@@ -62,9 +62,9 @@
 :root {
   --mist: #F2F4F5;
   --ink: #1D2733;
-  --muted: #56636F;
+  --muted: #4B5761;  /* AA on every band of the sky, --r0 included */
   --sun: #EE9B4A;
-  --sunink: #9A4F17;
+  --sunink: #854414;
   --card: #FFFFFF;
   --line: rgb(29 39 51 / 0.13);
   /* The dawn ramp: a band takes its color from its position, never from its name. */
@@ -199,7 +199,7 @@ body.sky .top { padding-right: 52px; }
   pointer-events: none;
 }
 .rail::before, .rail::after { content: ""; position: absolute; left: 10px; bottom: 0; }
-.rail::before { top: 0; width: 1.5px; background: repeating-linear-gradient(180deg, currentColor 0 3px, transparent 3px 7px); opacity: 0.35; }
+.rail::before { top: 0; border-left: 2px dotted; opacity: 0.35; }
 .rail::after { height: calc(var(--sol) * 100%); width: 2px; background: currentColor; opacity: 0.8; }
 .rail i {
   position: absolute;
@@ -276,7 +276,7 @@ details .more { border-top: 1px solid var(--line); }
 }
 .bar a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 10px; text-decoration: none; }
 .bar .pos { display: inline-flex; align-items: center; gap: 7px; padding-right: 8px; color: var(--muted); font-weight: 400; }
-.bar .pos i { width: 10px; height: 10px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px color-mix(in srgb, var(--sun) 60%, transparent); }
+.bar .pos i { width: 10px; height: 10px; border-radius: 50%; background: var(--sun); }
 /* A reading line that fills with the scroll; browsers without scroll timelines just skip it. */
 .readline { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--sun); transform-origin: left; transform: scaleX(0); }
 @supports (animation-timeline: scroll()) {
@@ -371,7 +371,7 @@ body.noon .colophon { display: none; }
 .days .d { font-size: 18px; line-height: 1.25; }
 .days .m { grid-column: 1; font: 400 12px/1.3 var(--sans); color: var(--muted); }
 .days .mini { position: relative; grid-row: 1 / 3; grid-column: 2; width: 64px; height: 12px; }
-.days .mini::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 7px); opacity: 0.35; }
+.days .mini::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px dotted; opacity: 0.35; }
 .days .mini i { position: absolute; top: 50%; left: calc(var(--sol) * (100% - 12px)); translate: 0 -50%; width: 12px; height: 12px; border-radius: 50%; background: var(--sun); }
 
 .search { padding: 8px 20px 16px; }
@@ -462,8 +462,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
   /* Toggles answer the press; the glyph pops in when it turns on. */
   .toggles button, .filter a, .noon-wrap .cta a { transition: transform 0.12s; }
   .toggles button:active, .filter a:active, .noon-wrap .cta a:active { transform: scale(0.96); }
-  .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.2, 0.7, 0.2, 1.4) both pop; }
-  .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1.4) both pop; }
+  .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
+  .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
 }
 @keyframes slide-out-left { to { translate: -30% 0; opacity: 0; } }
 @keyframes slide-in-right { from { translate: 30% 0; opacity: 0; } }
@@ -504,4 +504,5 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
   .tabbar svg { width: 18px; height: 18px; }
   body.sky .top, .prog, .band { padding-inline: 20px; }
   .rail { right: calc(50% - var(--column) / 2 - 40px); bottom: 24px; }
+  .bar { padding-inline: calc(50% - var(--column) / 2); }  /* the bar's ends line up with the column */
 }
