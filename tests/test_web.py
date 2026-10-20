@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -38,11 +40,23 @@ def test_note_page_has_one_h1_and_leads_to_the_next_note(client, seeded):
     assert "Fin de la edición" in client.get(f"/n/{seeded['world']}").text
 
 
-def test_nav_marks_the_current_page_and_shows_edition_progress(client, seeded):
+def test_tabbar_marks_the_current_page(client, seeded):
     page = client.get("/archivo").text
-    assert '<a href="/archivo" aria-current="page">' in page
-    assert 'href="/e/2026-10-10/Mundo"' in page  # sections stay outside edition pages
-    assert "2&nbsp;notas · 3&nbsp;min · 0&nbsp;leídas" in page
+    tabbar = page[page.index('<nav class="tabbar"') :]
+    assert '<a href="/archivo" aria-current="page">' in tabbar
+    for href in ("/", "/buscar", "/guardado"):
+        assert f'<a href="{href}">' in tabbar
+
+
+def test_pages_load_nothing_from_other_origins(client, seeded):
+    for path in ("/", f"/n/{seeded['front']}", "/archivo", "/buscar"):
+        html = client.get(path).text
+        assert not re.search(r'(src|href)="(https?:)?//', html), path  # originals use /a/{id}
+    css = client.get("/static/style.css").text
+    assert "url(http" not in css and "@import" not in css
+    for font in re.findall(r"url\((/static/fonts/[\w.-]+)\)", css):
+        assert client.get(font).status_code == 200, font
+    assert "/static/fonts/newsreader-roman.woff2" in css
 
 
 def test_errors_are_pages_not_json(client, seeded):
@@ -152,17 +166,6 @@ def test_section_archive_search_and_status(client, seeded):
     assert set(status) == {"today", "error", "latest"}
 
 
-def test_section_nav_on_inner_pages_without_repeated_kicker(client, seeded):
-    nav = 'href="/e/2026-10-10/Mundo"'
-    assert nav in client.get(f"/n/{seeded['front']}").text
-    section = client.get("/e/2026-10-10/Mundo").text
-    assert nav in section
-    assert '<p class="kicker">Mundo' not in section
-    front = client.get("/").text
-    assert '<p class="kicker">Chile</p>' in front  # front-page cards keep their section
-    assert '<p class="kicker">Mundo' not in front
-
-
 def test_failed_today_suggests_generate(client, engine, config, seeded):
     with Session(engine) as s, s.begin():
         s.add(Edition(edition_date=local_today(config), status=EditionStatus.failed, error="X"))
@@ -208,21 +211,10 @@ def test_toggles_accept_this_site(client, seeded, site):
     assert response.json() == {"value": True}
 
 
-def test_search_page_has_its_own_form_and_no_second_one(client, seeded):
+def test_search_page_has_one_form(client, seeded):
     page = client.get("/buscar", params={"q": "pension"}).text
     assert page.count('role="search"') == 1 and page.count('id="q"') == 1
     assert 'value="pension"' in page
-    assert 'role="search"' in client.get("/").text  # other pages keep the masthead form
-
-
-def test_note_page_marks_its_section_in_the_nav(client, seeded):
-    page = client.get(f"/n/{seeded['world']}").text
-    assert '<a href="/e/2026-10-10/Mundo" aria-current="location">' in page
-    assert 'aria-current="page"' not in page
-
-
-def test_masthead_links_to_search_for_small_screens(client, seeded):
-    assert '<a class="search-link" href="/buscar">Buscar</a>' in client.get("/").text
 
 
 def test_manifest_lets_chrome_install_the_paper(client):
@@ -231,6 +223,7 @@ def test_manifest_lets_chrome_install_the_paper(client):
     manifest = response.json()
     assert manifest["name"] == manifest["short_name"] == "Newspaper"
     assert (manifest["start_url"], manifest["display"]) == ("/", "standalone")
+    assert (manifest["background_color"], manifest["theme_color"]) == ("#F2F4F5", "#F2F4F5")
     sizes = {(icon["sizes"], icon["purpose"]) for icon in manifest["icons"]}
     assert sizes == {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")}
     for icon in manifest["icons"]:

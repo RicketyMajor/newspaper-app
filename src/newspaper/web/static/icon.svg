@@ -1,6 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#f6f1e6"/>
-  <text x="256" y="338" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
-        font-size="280" font-weight="700" fill="#1c1a17">N</text>
-  <rect x="166" y="372" width="180" height="10" fill="#8a1f1a"/>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#BFCFDF"/>
+      <stop offset=".6" stop-color="#EED4CB"/>
+      <stop offset="1" stop-color="#F5DFC8"/>
+    </linearGradient>
+    <clipPath id="above"><rect width="512" height="304"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <!-- The half sun on the horizon, inside the maskable safe zone (a 40% radius circle). -->
+  <g clip-path="url(#above)">
+    <circle cx="256" cy="304" r="150" fill="#EE9B4A" fill-opacity=".2"/>
+    <circle cx="256" cy="304" r="104" fill="#EE9B4A"/>
+  </g>
+  <rect x="96" y="300" width="320" height="10" rx="5" fill="#1D2733"/>
 </svg>

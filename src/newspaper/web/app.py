@@ -57,7 +57,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
         banner = today_banner(today.status, today.error) if today else None
-        # Masthead (date, progress, section nav) follows the page's edition, else the latest.
+        # The masthead's date follows the page's edition, else the latest.
         paper_edition = context.get("edition") or queries.latest_ready_edition(s)
         return templates.TemplateResponse(
             request,
@@ -67,9 +67,6 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "banner": banner,
                 "today_status": today.status.value if today else None,
                 "paper_edition": paper_edition,
-                "nav_sections": queries.section_counts(s, paper_edition.id)
-                if paper_edition
-                else [],
                 **context,
             },
         )
@@ -218,8 +215,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "short_name": name,
                 "start_url": "/",
                 "display": "standalone",
-                "background_color": "#f6f1e6",  # --paper
-                "theme_color": "#f6f1e6",
+                "background_color": "#F2F4F5",  # --mist
+                "theme_color": "#F2F4F5",
                 # The glyph sits inside the maskable safe zone: one image serves both purposes.
                 "icons": [icon(192, "any"), icon(512, "any"), icon(512, "maskable")],
             },

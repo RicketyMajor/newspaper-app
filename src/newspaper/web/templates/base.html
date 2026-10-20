@@ -2,14 +2,16 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}{{ paper }}{% if paper_edition %} · {{ paper_edition.edition_date|long_date }}{% endif %}{% endblock %}</title>
+  <link rel="preload" href="/static/fonts/newsreader-roman.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F2F4F5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0C1320" media="(prefers-color-scheme: dark)">
   <script src="/static/app.js?v={{ static_v }}" defer></script>
+  {% block head %}{% endblock %}
 </head>
 <body data-today="{{ today_status or '' }}">
   <a class="skip" href="#main">Saltar al contenido</a>
@@ -17,34 +19,23 @@
   <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>
   <p id="live" class="sr-only" aria-live="polite"></p>
   {% set here = request.url.path %}
-  <header class="wrap masthead">
-    {% block nameplate %}<h1 class="nameplate"><a href="/">{{ paper }}</a></h1>{% endblock %}
-    <div class="dateline">
-      {% if paper_edition %}
-      {% set notes = paper_edition.notes %}
-      <span>{{ paper_edition.edition_date|long_date }}</span>
-      <span class="progress">{{ notes|length }}&nbsp;{{ 'nota' if notes|length == 1 else 'notas' }} · {{ notes|sum(attribute='read_minutes') }}&nbsp;min · {% set read = notes|selectattr('is_read')|list|length %}{{ read }}&nbsp;{{ 'leída' if read == 1 else 'leídas' }}</span>
-      {% else %}
-      <span>Diario personal</span>
-      {% endif %}
-      {% if here != '/buscar' %}{# the search page has its own form: one id="q" per page #}
-      <form class="search" action="/buscar" role="search">
-        <label for="q" class="sr-only">Buscar</label>
-        <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}">
-      </form>
-      <a class="search-link" href="/buscar">Buscar</a>
-      {% endif %}
-    </div>
-    <nav class="sections" aria-label="Secciones">
-      {% macro navlink(href, label, location=False) %}<a href="{{ href }}"{% if here == href %} aria-current="page"{% elif location %} aria-current="location"{% endif %}>{{ label }}</a>{% endmacro %}
-      {{ navlink('/', 'Portada') }}
-      {% for name, _ in nav_sections %}{{ navlink('/e/' ~ paper_edition.edition_date ~ '/' ~ name, name, note is defined and note and note.section == name) }}{% endfor %}
-      {{ navlink('/archivo', 'Archivo') }}
-      {{ navlink('/favoritos', 'Favoritos') }}
-      {{ navlink('/guardados', 'Guardados') }}
-    </nav>
+  {% block top %}
+  <header class="top">
+    <a class="name" href="/">{{ paper }}</a>
+    {% if paper_edition %}<p class="date">{{ paper_edition.edition_date|long_date }}</p>{% endif %}
   </header>
-  <main id="main" class="wrap">{% block content %}{% endblock %}</main>
-  <footer class="wrap colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.</footer>
+  {% endblock %}
+  {% block tabbar %}
+  {# Phones: fixed at the bottom; from 760px, a row of links under the masthead. #}
+  <nav class="tabbar" aria-label="Principal">
+    {% macro tab(href, label, current, icon) %}<a href="{{ href }}"{% if current %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true">{{ icon|safe }}</svg>{{ label }}</a>{% endmacro %}
+    {{ tab('/', 'Hoy', here == '/' or here.startswith('/e/'), '<circle cx="12" cy="14" r="4"/><path d="M3 18h18M12 4v3M5 9l2 2M19 9l-2 2"/>') }}
+    {{ tab('/archivo', 'Archivo', here == '/archivo', '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v5"/>') }}
+    {{ tab('/buscar', 'Buscar', here == '/buscar', '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>') }}
+    {{ tab('/guardado', 'Guardado', here == '/guardado', '<path d="M7 4h10v16l-5-4-5 4z"/>') }}
+  </nav>
+  {% endblock %}
+  <main id="main">{% block content %}{% endblock %}</main>
+  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.</footer>
 </body>
 </html>
