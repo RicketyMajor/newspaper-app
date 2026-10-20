@@ -50,6 +50,15 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Atkinson's zero is slashed ("2Ø26"); the UI takes its digits from Newsreader instead. */
+@font-face {
+  font-family: "Alba Digits";
+  font-weight: 200 800;
+  font-display: swap;
+  src: url(/static/fonts/newsreader-roman.woff2) format("woff2");
+  unicode-range: U+0030-0039;
+}
+
 :root {
   --mist: #F2F4F5;
   --ink: #1D2733;
@@ -67,7 +76,7 @@
   --r5: #DCE9F1;
   --bar: rgb(242 244 245 / 0.86);
   --serif: "Newsreader", Georgia, serif;
-  --sans: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --sans: "Alba Digits", "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --radius: 20px;
   --column: 42rem;
   color-scheme: light dark;
@@ -249,6 +258,108 @@ details summary::-webkit-details-marker { display: none; }
 details summary::after { content: "▾"; transition: rotate 0.2s; }
 details[open] summary::after { rotate: 180deg; }
 details .more { border-top: 1px solid var(--line); }
+
+/* The note: a calm reading column under a fixed bar */
+.bar {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 8px 0 4px;
+  background: var(--bar);
+  backdrop-filter: blur(12px);
+  font: 600 13px/1 var(--sans);
+}
+.bar a { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 10px; text-decoration: none; }
+.bar .pos { display: inline-flex; align-items: center; gap: 7px; padding-right: 8px; color: var(--muted); font-weight: 400; }
+.bar .pos i { width: 10px; height: 10px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px color-mix(in srgb, var(--sun) 60%, transparent); }
+/* A reading line that fills with the scroll; browsers without scroll timelines just skip it. */
+.readline { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--sun); transform-origin: left; transform: scaleX(0); }
+@supports (animation-timeline: scroll()) {
+  .readline { animation: read linear both; animation-timeline: scroll(root); }
+}
+@supports not (animation-timeline: scroll()) {
+  .readline { display: none; }
+}
+@keyframes read { to { transform: scaleX(1); } }
+
+.note .head { padding: 22px 22px 18px; background: linear-gradient(180deg, var(--tint) 0%, var(--mist) 100%); }
+.note .kick { font: 600 12px/1.4 var(--sans); color: var(--sunink); }
+.note .kick .outlets.multi { color: inherit; }
+.note h1 { margin: 10px 0; font-size: 31px; line-height: 1.1; letter-spacing: -0.012em; }
+.note .head .dek { font-style: italic; font-size: 18px; line-height: 1.4; color: var(--muted); }
+.note .head .meta { margin-top: 12px; font: 400 12px/1.3 var(--sans); color: var(--muted); }
+.caveats { margin: 12px 0 0; padding: 0; list-style: none; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
+.caveats li + li { margin-top: 4px; }
+.caveats strong { color: var(--ink); font-weight: 600; }
+.note .body { max-width: 34em; padding: 6px 22px 0; font-size: 18px; line-height: 1.62; }
+.note .body p, .note .body ul, .note .body ol { margin: 0 0 1em; }
+.note .body h2, .note .body h3 { margin: 1.2em 0 0.4em; font-size: 21px; font-weight: 500; }
+.note .diff { margin: 8px 14px 18px; padding: 18px 18px 16px; border-radius: var(--radius); background: color-mix(in srgb, var(--r0) 45%, var(--mist)); }
+.note .diff h2, .note .src h2 { margin-bottom: 12px; font: 700 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chips span { padding: 6px 10px; border-radius: 20px; background: var(--card); font: 600 11.5px/1 var(--sans); }
+.note .diff p { font-size: 16.5px; line-height: 1.5; }
+.note .diff p + p { margin-top: 0.7em; }
+.note .src { padding: 6px 22px 0; scroll-margin-top: 60px; }
+.note .src ol { padding: 0; list-style: none; }
+.note .src li { padding: 12px 0; border-top: 1px solid var(--line); scroll-margin-top: 60px; }
+.note .src .o { font: 600 11.5px/1.3 var(--sans); color: var(--muted); }
+.note .src .tt { margin-top: 5px; font-size: 16px; line-height: 1.3; }
+.note .src .tt a { text-decoration: none; }
+.note .src li.is-read .tt a { color: var(--muted); }
+
+.note .end { margin: 18px 14px 0; padding: 16px; border-radius: var(--radius); background: var(--card); }
+.note .done { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font: 700 12.5px/1.3 var(--sans); }
+.note .done[hidden] { display: none; }
+.note .done i { width: 12px; height: 12px; border-radius: 50%; background: var(--sun); }
+.next { display: grid; gap: 6px; text-decoration: none; }
+.next .l { font: 600 11.5px/1.3 var(--sans); color: var(--sunink); }
+.next .h { font-size: 20px; line-height: 1.2; }
+.next .hint { font: 400 11.5px/1.3 var(--sans); color: var(--muted); }
+p.next a { font: 600 13px/1 var(--sans); }
+
+/* Reading toggles: pills that answer when pressed */
+.toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.toggles form { margin: 0; }
+.toggles button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 12.5px/1 var(--sans);
+  cursor: pointer;
+}
+.toggles button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--mist); }
+.toggles button[aria-pressed="false"] .glyph { display: none; }
+.note > .toggles { margin: 14px 14px 30px; }
+.note > .toggles form { flex: 1; }
+.note > .toggles button { width: 100%; min-height: 44px; justify-content: center; }
+
+/* Pleno día: the noon sky, the sun at the top of its arc */
+body.noon { background: linear-gradient(180deg, var(--noon-a), var(--noon-b) 55%, var(--mist)); }
+:root { --noon-a: #CFE3F1; --noon-b: #E7F0F6; }
+@media (prefers-color-scheme: dark) { :root { --noon-a: #3A2C38; --noon-b: #1E2232; } }
+.noon-wrap { display: flex; flex-direction: column; min-height: 100svh; max-width: var(--column); margin: 0 auto; padding: 0 26px 32px; }
+.noon-wrap svg { display: block; width: 200px; height: 120px; margin: 70px auto 0; color: var(--ink); }
+.noon-wrap h1 { margin-top: 26px; font-weight: 300; font-size: 46px; line-height: 1; letter-spacing: -0.02em; }
+.noon-wrap .lead { margin-top: 14px; font-size: 19px; line-height: 1.45; }
+.noon-wrap .left { margin-top: 10px; font: 400 13px/1.4 var(--sans); color: var(--muted); }
+.noon-wrap .left a { color: var(--sunink); font-weight: 700; }
+.noon-wrap .chips { margin-top: 18px; }
+.noon-wrap .cta { display: grid; gap: 10px; margin-top: auto; padding-top: 32px; }
+.noon-wrap .cta a { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 24px; font: 600 14px/1 var(--sans); text-decoration: none; }
+.noon-wrap .cta .p { background: var(--ink); color: var(--mist); }
+.noon-wrap .cta .s { border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); }
+.noon-wrap .tomorrow { margin-top: 14px; text-align: center; font: 400 12px/1.4 var(--sans); color: var(--muted); }
+body.noon .colophon { display: none; }
 
 .colophon {
   max-width: var(--column);

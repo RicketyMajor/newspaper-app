@@ -53,12 +53,36 @@ def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seed
     assert "Fuente única:" in note  # explained where it matters
 
 
-def test_note_page_has_one_h1_and_leads_to_the_next_note(client, seeded):
-    page = client.get(f"/n/{seeded['front']}").text
-    assert page.count("<h1") == 1
-    assert "Nota 1 de 2" in page
-    assert f'href="/n/{seeded["world"]}"' in page
-    assert "Fin de la edición" in client.get(f"/n/{seeded['world']}").text
+def test_note_page_has_one_h1_and_walks_the_reading_path_to_noon(client, seeded):
+    first = client.get(f"/n/{seeded['front']}").text
+    assert first.count("<h1") == 1
+    assert "1 de 2" in first and f'rel="next" href="/n/{seeded["world"]}"' in first
+    last = client.get(f"/n/{seeded['world']}").text
+    assert "2 de 2" in last and 'rel="next" href="/fin/2026-10-10"' in last
+    assert f'rel="prev" href="/n/{seeded["front"]}"' in last
+    assert "Pleno día" in last
+
+
+def test_notes_after_the_core_count_as_more_and_end_the_edition(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        edition = s.get(Note, seeded["world"]).edition
+        edition.notes.append(
+            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
+                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
+        )  # fmt: skip
+        s.flush()
+        extra = edition.notes[-1].id
+    page = client.get(f"/n/{extra}").text
+    assert "Más · 1 de 1" in page and "Fin de la edición" in page
+    assert 'rel="next"' not in page
+
+
+def test_noon_page_closes_the_core(client, seeded):
+    page = client.get("/fin/2026-10-10").text
+    assert "Pleno día." in page and "Terminaste lo esencial" in page
+    assert "Te faltan 2 de lo esencial" in page
+    assert "cerca de las 06:15" in page  # edition_hour 6
+    assert client.get("/fin/2099-01-01").status_code == 404
 
 
 def test_tabbar_marks_the_current_page(client, seeded):

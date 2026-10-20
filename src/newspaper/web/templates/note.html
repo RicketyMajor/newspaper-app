@@ -1,52 +1,74 @@
 {% extends "base.html" %}
-{% from "_macros.html" import outlets, tags, original, toggles with context %}
+{% from "_macros.html" import outlets, original, toggles with context %}
 {% block title %}{{ note.headline|replace('*', '') }} · {{ paper }}{% endblock %}
-{% block nameplate %}<p class="nameplate"><a href="/">{{ paper }}</a></p>{% endblock %}
+{% block head %}
+{% if prev_url %}<link rel="prev" href="{{ prev_url }}">{% endif %}
+{% if next_url %}<link rel="next" href="{{ next_url }}">{% endif %}
+{% endblock %}
+{% block top %}
+<header class="bar">
+  <a href="/e/{{ edition.edition_date }}"><span aria-hidden="true">‹</span> Hoy</a>
+  <span class="pos"><i aria-hidden="true"></i>{{ position_label }}</span>
+  <span class="readline" aria-hidden="true"></span>
+</header>
+{% endblock %}
+{% block tabbar %}{% endblock %}
 {% block content %}
-<article class="note">
-  <p class="kicker"><a href="/e/{{ edition.edition_date }}/{{ note.section }}">{{ note.section }}</a></p>
-  <h1>{{ note.headline|inline|safe }}</h1>
-  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
-  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min de lectura {{ tags(note) }}</p>
-  {% if note.single_source or note.excerpt_only or not note.drafted or note.interest %}
-  <ul class="caveats">
-    {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
-    {% if note.excerpt_only %}<li><strong>Solo extracto:</strong> no se pudo leer el texto completo; la nota se basa en el resumen del feed.</li>{% endif %}
-    {% if not note.drafted %}<li><strong>Sin redactar:</strong> el modelo local no pudo redactarla; se muestran los extractos originales.</li>{% endif %}
-    {% if note.interest %}<li><strong>{{ 'Te interesa' if note.interest_liked else 'Menos interés' }}:</strong> el modelo local la clasificó como «{{ note.interest }}», de tu lista de intereses; por eso {{ 'sube entre las notas con igual número de medios' if note.interest_liked else 'va al final de su sección y nunca a portada' }}.</li>{% endif %}
-  </ul>
-  {% endif %}
+{% set names = note.articles|map(attribute='source_name')|unique|list %}
+<article class="note" data-in-core="{{ 'true' if in_core else 'false' }}" data-core-read="{{ core_read }}" data-core-total="{{ core_total }}">
+  <header class="head" style="--tint: var(--r{{ tint }})">
+    <p class="kick">{{ note.section }} · {{ outlets(note) }}</p>
+    <h1 style="view-transition-name: h-{{ note.id }}">{{ note.headline|inline|safe }}</h1>
+    {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
+    <p class="meta">{{ note.read_minutes }}&nbsp;min de lectura · {{ names|length }}&nbsp;{{ 'medio' if names|length == 1 else 'medios' }}{% if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %}</p>
+    {% if note.single_source or note.excerpt_only or not note.drafted or note.interest %}
+    <ul class="caveats">
+      {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
+      {% if note.excerpt_only %}<li><strong>Solo extracto:</strong> no se pudo leer el texto completo; la nota se basa en el resumen del feed.</li>{% endif %}
+      {% if not note.drafted %}<li><strong>Sin redactar:</strong> el modelo local no pudo redactarla; se muestran los extractos originales.</li>{% endif %}
+      {% if note.interest %}<li><strong>{{ 'Te interesa' if note.interest_liked else 'Menos interés' }}:</strong> el modelo local la clasificó como «{{ note.interest }}», de tu lista de intereses; por eso {{ 'sube entre las notas con igual número de medios' if note.interest_liked else 'va al final de su sección y nunca a portada' }}.</li>{% endif %}
+    </ul>
+    {% endif %}
+  </header>
   <div class="body">{{ note.body|markdown|safe }}</div>
   {% if note.differences %}
-  <aside class="differences" id="difieren">
-    <h2>Dónde difieren</h2>
+  <aside class="diff" id="difieren" aria-labelledby="difieren-t">
+    <h2 id="difieren-t">Dónde difieren</h2>
+    <p class="chips">{% for name in names %}<span>{{ name }}</span>{% endfor %}</p>
     {{ note.differences|markdown|safe }}
   </aside>
   {% endif %}
-  <section class="sources">
-    <h2>Fuentes</h2>
+  <section class="src" id="fuentes" aria-labelledby="fuentes-t">
+    <h2 id="fuentes-t">Fuentes</h2>
     <ol>
       {% for a in note.articles %}
       <li id="a-{{ a.id }}" class="{{ 'is-read' if a.is_read }}">
-        {{ original(a) }}
-        <span class="meta">{{ a.source_name }}{% if a.content_source == 'excerpt' %} · solo extracto{% endif %}</span>
+        <p class="o">{{ a.source_name }}{% if a.content_source == 'excerpt' %} · solo extracto{% endif %}</p>
+        <p class="tt">{{ original(a) }}</p>
         {{ toggles('a', a) }}
       </li>
       {% endfor %}
     </ol>
   </section>
-  <footer class="note-end">
-    <h2 class="sr-only">Esta nota</h2>
-    {{ toggles('n', note) }}
-    <nav class="next" aria-label="Siguiente nota">
-      <p class="meta">Nota {{ position }} de {{ total }}</p>
-      {% if next_note %}
-      <a href="/n/{{ next_note.id }}"><span class="next-label">Siguiente</span> {{ next_note.headline|inline|safe }}</a>
-      {% else %}
-      <p class="next-label">Fin de la edición.</p>
-      {% endif %}
-      <a class="back" href="/e/{{ edition.edition_date }}">Volver a la portada</a>
-    </nav>
-  </footer>
+  <div class="end">
+    <p class="done" hidden><i aria-hidden="true"></i><span></span></p>
+    {% if next_note %}
+    <a class="next" rel="next" href="{{ next_url }}">
+      <span class="l">Siguiente · {{ next_label }} · {{ next_note.section }}</span>
+      <span class="h">{{ next_note.headline|inline|safe }}</span>
+      <span class="hint">Tócala o desliza hacia la izquierda</span>
+    </a>
+    {% elif next_url %}
+    <a class="next" rel="next" href="{{ next_url }}">
+      <span class="l">Siguiente</span>
+      <span class="h">Pleno día</span>
+      <span class="hint">Cierra lo esencial de hoy</span>
+    </a>
+    {% else %}
+    <p class="next"><span class="l">Fin de la edición.</span> <a href="/e/{{ edition.edition_date }}">Volver a Hoy</a></p>
+    {% endif %}
+  </div>
+  <h2 class="sr-only">Esta nota</h2>
+  {{ toggles('n', note) }}
 </article>
 {% endblock %}

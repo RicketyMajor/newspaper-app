@@ -131,12 +131,46 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         found = queries.get_note(s, note_id)
         if found is None:
             raise HTTPException(404, "Nota no encontrada")
-        notes = found.edition.notes  # edition order (rank)
-        i = [n.id for n in notes].index(note_id)
-        next_note = notes[i + 1] if i + 1 < len(notes) else None
+        core, rest = queries.reading_order(found.edition.notes)
+        path = core + rest
+        i = path.index(found)
+
+        def label(j: int) -> str:
+            if j < len(core):
+                return f"{j + 1} de {len(core)}"
+            return f"Más · {j - len(core) + 1} de {len(rest)}"
+
+        if i == len(core) - 1:  # the core ends at noon, then the rest of the edition follows
+            next_url = f"/fin/{found.edition.edition_date}"
+        else:
+            next_url = f"/n/{path[i + 1].id}" if i + 1 < len(path) else None
+        # The header takes its band's color: the front page is the first band of the sky.
+        sections = [name for name, _ in queries.section_counts(s, found.edition.id)]
+        band = 0 if found.is_front else sections.index(found.section) + 1
         return render(
-            request, s, "note.html", edition=found.edition, note=found,
-            position=i + 1, total=len(notes), next_note=next_note,
+            request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
+            prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
+            next_note=path[i + 1] if next_url and next_url.startswith("/n/") else None,
+            next_label=label(i + 1),
+            in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
+            tint=round(band * 5 / max(1, len(sections))),
+        )  # fmt: skip
+
+    @app.get("/fin/{day}", response_class=HTMLResponse)
+    def end(request: Request, s: DB, day: date):
+        found = queries.ready_edition(s, day)
+        if found is None:
+            raise HTTPException(404, "No hay edición para esa fecha")
+        core, rest = queries.reading_order(found.notes)
+        front = sum(n.is_front for n in core)
+        bands = ([("Portada", front)] if front else []) + [
+            (n.section, 1) for n in core if not n.is_front
+        ]
+        return render(
+            request, s, "end.html", edition=found, core_total=len(core),
+            core_minutes=sum(n.read_minutes for n in core), bands=bands,
+            first_rest=rest[0] if rest else None, core_left=sum(not n.is_read for n in core),
+            next_hour=f"{config.general.edition_hour:02d}:15",
         )  # fmt: skip
 
     @app.get("/a/{article_id}")
