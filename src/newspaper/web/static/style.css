@@ -415,6 +415,66 @@ body.noon .colophon { display: none; }
 .empty p { margin-top: 12px; }
 .empty code { font-size: 0.85em; }
 
+/* Shortcuts dialog (? on a keyboard) */
+#atajos { max-width: 22rem; padding: 20px 22px; border: 0; border-radius: var(--radius); background: var(--card); color: var(--ink); font: 400 14px/1.4 var(--sans); }
+#atajos::backdrop { background: rgb(12 19 32 / 0.4); }
+#atajos h2 { margin-bottom: 12px; font: 700 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
+#atajos dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 0 16px; }
+#atajos dd { margin: 0; }
+#atajos button { min-height: 44px; padding: 0 18px; border: 1px solid var(--line); border-radius: 22px; background: transparent; color: inherit; font: 600 13px/1 var(--sans); cursor: pointer; }
+kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font: 600 0.9em var(--sans); }
+@media not (hover: hover) { .keys-hint { display: none; } }
+
+/* Motion: all of it goes away with prefers-reduced-motion. */
+@view-transition { navigation: auto; }
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root { interpolate-size: allow-keywords; }
+
+  /* Card → note: the headline morphs (shared view-transition-name h-{id}). */
+  ::view-transition-group(*) { animation-duration: 0.35s; animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1); }
+  /* Swipe or keys between notes: the page slides in the direction of the walk. */
+  html:active-view-transition-type(adelante)::view-transition-old(root) { animation: 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both slide-out-left; }
+  html:active-view-transition-type(adelante)::view-transition-new(root) { animation: 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both slide-in-right; }
+  html:active-view-transition-type(atras)::view-transition-old(root) { animation: 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both slide-out-right; }
+  html:active-view-transition-type(atras)::view-transition-new(root) { animation: 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both slide-in-left; }
+
+  /* Today, once per edition: night gives way to dawn, the bands rise in turn, the sun climbs. */
+  html.amanecer body.sky::before {
+    content: "";
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    background: #0C1320;
+    pointer-events: none;
+    animation: 0.4s ease-out 0.1s both night-fades;
+  }
+  html.amanecer .band { animation: 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both band-rises; animation-delay: calc(0.25s + var(--i) * 60ms); }
+  html.amanecer .rail i, html.sube .rail i { animation: 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s both sun-climbs; }
+  html.amanecer .rail::after, html.sube .rail::after { animation: 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s both trail-climbs; }
+
+  /* "y N más" unfolds instead of jumping open. */
+  details::details-content { height: 0; overflow: clip; transition: height 0.3s cubic-bezier(0.2, 0.7, 0.2, 1), content-visibility 0.3s allow-discrete; }
+  details[open]::details-content { height: auto; }
+
+  /* Toggles answer the press; the glyph pops in when it turns on. */
+  .toggles button, .filter a, .noon-wrap .cta a { transition: transform 0.12s; }
+  .toggles button:active, .filter a:active, .noon-wrap .cta a:active { transform: scale(0.96); }
+  .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.2, 0.7, 0.2, 1.4) both pop; }
+  .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1.4) both pop; }
+}
+@keyframes slide-out-left { to { translate: -30% 0; opacity: 0; } }
+@keyframes slide-in-right { from { translate: 30% 0; opacity: 0; } }
+@keyframes slide-out-right { to { translate: 30% 0; opacity: 0; } }
+@keyframes slide-in-left { from { translate: -30% 0; opacity: 0; } }
+@keyframes night-fades { to { opacity: 0; visibility: hidden; } }
+@keyframes band-rises { from { opacity: 0; translate: 0 14px; } }
+@keyframes sun-climbs { from { bottom: calc(var(--sol-desde, 0) * 100%); } }
+@keyframes trail-climbs { from { height: calc(var(--sol-desde, 0) * 100%); } }
+@keyframes pop { from { transform: scale(0.4); opacity: 0; } }
+
 .colophon {
   max-width: var(--column);
   margin: 0 auto;

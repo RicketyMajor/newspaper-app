@@ -11,6 +11,16 @@
   <meta name="theme-color" content="#F2F4F5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0C1320" media="(prefers-color-scheme: dark)">
   <script src="/static/app.js?v={{ static_v }}" defer></script>
+  <script>
+    // Before the first frame: a swipe or a key left a direction for the view transition.
+    addEventListener("pagereveal", (e) => {
+      try {
+        const dir = sessionStorage.alba_dir;
+        delete sessionStorage.alba_dir;
+        if (dir && e.viewTransition) e.viewTransition.types.add(dir);
+      } catch {}
+    });
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-today="{{ today_status or '' }}">
@@ -36,6 +46,17 @@
   </nav>
   {% endblock %}
   <main id="main">{% block content %}{% endblock %}</main>
-  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.</footer>
+  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.<span class="keys-hint"> Pulsa <kbd>?</kbd> para ver los atajos de teclado.</span></footer>
+  <dialog id="atajos" aria-labelledby="atajos-t">
+    <h2 id="atajos-t">Atajos de teclado</h2>
+    <dl>
+      <dt><kbd>/</kbd></dt><dd>Buscar</dd>
+      <dt><kbd>g</kbd></dt><dd>Volver a Hoy</dd>
+      <dt><kbd>→</kbd> o <kbd>j</kbd></dt><dd>Nota siguiente</dd>
+      <dt><kbd>←</kbd> o <kbd>k</kbd></dt><dd>Nota anterior</dd>
+      <dt><kbd>m</kbd> · <kbd>f</kbd> · <kbd>s</kbd></dt><dd>Leída · Favorita · Guardar</dd>
+    </dl>
+    <form method="dialog"><button>Cerrar</button></form>
+  </dialog>
 </body>
 </html>

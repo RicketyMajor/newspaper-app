@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% from "_macros.html" import lead, line %}
 {% block body_class %}sky{% endblock %}
+{% block head %}
+<script>
+  // Before the first paint: the sunrise plays once per edition, and the sun climbs from where
+  // it was on the last visit. Without storage, neither: the page just shows the sun in place.
+  try {
+    const day = "{{ edition.edition_date }}", root = document.documentElement;
+    const seen = localStorage["alba:visto"] === day;
+    const from = seen ? +(localStorage["alba:" + day] || 0) : 0;
+    if (!seen) root.classList.add("amanecer");
+    if (from < {{ core_read }}) {
+      root.classList.add("sube");
+      root.style.setProperty("--sol-desde", from / {{ core_total or 1 }});
+    }
+  } catch {}
+</script>
+{% endblock %}
 {% block top %}
 <header class="top">
   <h1 class="name">{{ paper }}</h1>
@@ -9,7 +25,7 @@
 <p class="prog">Lo esencial: {{ core_read }} de {{ core_total }}.
   {%- if core_total and core_read == core_total %} <a href="/fin/{{ edition.edition_date }}">Pleno día.</a>{% else %} El sol sube con cada una.{% endif %}</p>
 {# The sun is the core's progress: on the horizon with none read, at the top with all. #}
-<div class="rail" aria-hidden="true" style="--sol: {{ (core_read / core_total) if core_total else 0 }}"><i></i></div>
+<div class="rail" aria-hidden="true" data-day="{{ edition.edition_date }}" data-read="{{ core_read }}" style="--sol: {{ (core_read / core_total) if core_total else 0 }}"><i></i></div>
 {% endblock %}
 {% block content %}
 {% if front %}
