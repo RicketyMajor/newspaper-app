@@ -94,10 +94,18 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def edition_page(request: Request, s: Session, edition) -> HTMLResponse:
         if edition is None:
             return render(request, s, "empty.html", edition=None)
-        counts = queries.section_counts(s, edition.id)
-        sections = [(name, queries.section_notes(s, edition.id, name)) for name, _ in counts]
-        front = queries.front_page(s, edition.id)
-        return render(request, s, "front.html", edition=edition, front=front, sections=sections)
+        core, _rest = queries.reading_order(edition.notes)
+        # Each band: its first note (the core's) big, the rest folded under "y N más".
+        sections = []
+        for name, _ in queries.section_counts(s, edition.id):
+            first, *rest = queries.section_notes(s, edition.id, name)
+            sections.append((name, first, rest))
+        return render(
+            request, s, "front.html", edition=edition, front=queries.front_page(s, edition.id),
+            sections=sections, next_core=next((n for n in core if not n.is_read), None),
+            core_read=sum(n.is_read for n in core), core_total=len(core),
+            core_minutes=sum(n.read_minutes for n in core),
+        )  # fmt: skip
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, s: DB):

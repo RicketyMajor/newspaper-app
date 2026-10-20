@@ -1,17 +1,33 @@
 {% extends "base.html" %}
-{% from "_macros.html" import card %}
+{% from "_macros.html" import lead, line %}
+{% block body_class %}sky{% endblock %}
+{% block top %}
+<header class="top">
+  <h1 class="name">{{ paper }}</h1>
+  <p class="date">{{ edition.edition_date|long_date }}<br>{{ core_total }}&nbsp;{{ 'nota esencial' if core_total == 1 else 'notas esenciales' }} · {{ core_minutes }}&nbsp;min</p>
+</header>
+<p class="prog">Lo esencial: {{ core_read }} de {{ core_total }}.
+  {%- if core_total and core_read == core_total %} <a href="/fin/{{ edition.edition_date }}">Pleno día.</a>{% else %} El sol sube con cada una.{% endif %}</p>
+{# The sun is the core's progress: on the horizon with none read, at the top with all. #}
+<div class="rail" aria-hidden="true" style="--sol: {{ (core_read / core_total) if core_total else 0 }}"><i></i></div>
+{% endblock %}
 {% block content %}
 {% if front %}
-<section class="front" aria-labelledby="portada">
-  <h2 id="portada" class="sr-only">Portada</h2>
-  <div class="front-lead">{{ card(front[0], lead=True) }}</div>
-  <div class="front-rest">{% for note in front[1:] %}{{ card(note) }}{% endfor %}</div>
+<section class="band" aria-labelledby="b-0" style="--i: 0">
+  <h2 class="opener" id="b-0">Portada</h2>
+  {% for note in front %}{% if note is sameas next_core %}{{ lead(note, 'Sigue aquí') }}{% else %}{{ line(note) }}{% endif %}{% endfor %}
 </section>
 {% endif %}
-{% for name, notes in sections %}
-<section class="section-block" aria-labelledby="s-{{ loop.index }}">
-  <h2 id="s-{{ loop.index }}" class="section-title"><a href="/e/{{ edition.edition_date }}/{{ name }}">{{ name }}</a></h2>
-  <div class="grid">{% for note in notes %}{{ card(note, kicker=False) }}{% endfor %}</div>
+{% for name, first, rest in sections %}
+<section class="band" aria-labelledby="b-{{ loop.index }}" style="--i: {{ loop.index }}">
+  <h2 class="opener" id="b-{{ loop.index }}">{{ name }} <small>{{ rest|length + 1 }}&nbsp;{{ 'nota' if not rest else 'notas' }}</small></h2>
+  {{ lead(first, 'Sigue aquí' if first is sameas next_core else None) }}
+  {% if rest %}
+  <details>
+    <summary>y {{ rest|length }} más en {{ name }}</summary>
+    <div class="more">{% for note in rest %}{{ line(note) }}{% endfor %}</div>
+  </details>
+  {% endif %}
 </section>
 {% endfor %}
 {% endblock %}

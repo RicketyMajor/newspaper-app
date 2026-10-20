@@ -19,8 +19,29 @@ def test_front_page_shows_lead_note_and_sections(client, seeded):
     assert "Senado aprueba reforma de pensiones" in page
     assert "Cumbre climática cierra sin acuerdo" in page
     assert "sábado 10 de octubre de 2026" in page
-    assert "El Senado aprobó la reforma" in page  # the lead card carries its lede
-    assert "Ver dónde difieren" in page
+
+
+def test_today_is_one_sky_with_the_core_and_the_sun(client, engine, seeded):
+    page = client.get("/").text
+    assert "Lo esencial: 0 de 2" in page  # seeded: 1 front + Mundo's first
+    assert "2&nbsp;notas esenciales · 3&nbsp;min" in page
+    assert 'class="rail"' in page and "--sol: 0.0" in page
+    assert "Sigue aquí" in page  # the first unread core note is big
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).is_read = True
+    page = client.get("/").text
+    assert "Lo esencial: 1 de 2" in page and "--sol: 0.5" in page
+
+
+def test_section_bands_fold_the_rest_of_the_section(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        edition = s.get(Note, seeded["world"]).edition
+        edition.notes.append(
+            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
+                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
+        )  # fmt: skip
+    page = client.get("/").text
+    assert "<details" in page and "y 1 más en Mundo" in page and "Otra de Mundo" in page
 
 
 def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seeded):

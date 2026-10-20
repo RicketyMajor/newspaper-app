@@ -13,7 +13,7 @@
   <script src="/static/app.js?v={{ static_v }}" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body data-today="{{ today_status or '' }}">
+<body class="{% block body_class %}{% endblock %}" data-today="{{ today_status or '' }}">
   <a class="skip" href="#main">Saltar al contenido</a>
   {% if banner %}<p class="banner" role="status">{{ banner }}</p>{% endif %}
   <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>

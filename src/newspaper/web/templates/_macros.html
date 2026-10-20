@@ -10,6 +10,25 @@
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
 {%- endmacro %}
 
+{% macro read_mark(note) -%}
+{% if note.is_read %}<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>{% endif %}
+{%- endmacro %}
+
+{# The headline shares its view-transition-name with the note's h1: the card morphs into it. #}
+{% macro lead(note, kicker=None) %}
+<article class="big{% if note.is_read %} done{% endif %}">
+  {% if kicker %}<p class="k">{{ kicker }} · {{ outlets(note) }}</p>{% endif %}
+  <h3><a href="/n/{{ note.id }}" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</a></h3>
+  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
+  <p class="meta">{% if kicker %}{{ note.section }}{% else %}{{ outlets(note) }}{% endif %} · {{ note.read_minutes }}&nbsp;min
+    {%- if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %} {{ tags(note) }}</p>
+</article>
+{% endmacro %}
+
+{% macro line(note) %}
+<a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
+{% endmacro %}
+
 {% macro card(note, lead=False, kicker=True) %}
 <article class="card{% if lead %} lead{% endif %}{% if note.is_read %} is-read{% endif %}">
   {% if kicker or note.is_favorite %}<p class="kicker">
