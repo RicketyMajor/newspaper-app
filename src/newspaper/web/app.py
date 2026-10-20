@@ -223,11 +223,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     @app.get("/guardado", response_class=HTMLResponse)
     def saved(request: Request, s: DB, f: Literal["todo", "favoritos", "guardados"] = "todo"):
         flags = {"todo": ("favorite", "saved"), "favoritos": ("favorite",), "guardados": ("saved",)}
-        notes, articles = [], []
-        for flag in flags[f]:
-            more_notes, more_articles = queries.flagged(s, flag)
-            notes += [n for n in more_notes if n not in notes]  # favorite and saved: once
-            articles += [a for a in more_articles if a not in articles]
+        notes, articles = queries.flagged(s, *flags[f])
         return render(request, s, "saved.html", f=f, notes=notes, articles=articles)
 
     @app.get("/favoritos")

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from sqlalchemy import bindparam, func, select, text
+from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from .models import Article, Edition, EditionStatus, Note
@@ -126,17 +126,19 @@ def unindex(s: Session, kind: Kind, ref_ids: list[int]) -> None:
     s.execute(stmt.bindparams(bindparam("ids", expanding=True)), {"k": kind, "ids": ref_ids})
 
 
-def flagged(s: Session, flag: Flag) -> tuple[list[Note], list[Article]]:
-    """Notes and articles with `flag` set, newest first."""
-    attr = _FLAGS[flag]
+def flagged(s: Session, *flags: Flag) -> tuple[list[Note], list[Article]]:
+    """Notes and articles with any of `flags` set, newest first."""
+    attrs = [_FLAGS[flag] for flag in flags]
     notes = s.scalars(
         select(Note)
-        .where(getattr(Note, attr))
+        .where(or_(*(getattr(Note, attr) for attr in attrs)))
         .options(selectinload(Note.edition), selectinload(Note.articles))
         .order_by(Note.edition_id.desc(), Note.rank)
     )
     articles = s.scalars(
-        select(Article).where(getattr(Article, attr)).order_by(Article.published_at.desc())
+        select(Article)
+        .where(or_(*(getattr(Article, attr) for attr in attrs)))
+        .order_by(Article.published_at.desc())
     )
     return list(notes), list(articles)
 

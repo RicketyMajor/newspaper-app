@@ -86,6 +86,13 @@ def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):
         assert articles == []
         notes, articles = queries.flagged(s, "saved")
         assert [a.id for a in articles] == [seeded["articles"][0]]
+    with Session(engine) as s, s.begin():  # several flags: one list, in the same order
+        queries.set_flag(s, "note", seeded["front"], "saved", True)
+        queries.set_flag(s, "article", seeded["articles"][2], "favorite", True)
+    with Session(engine) as s:
+        notes, articles = queries.flagged(s, "favorite", "saved")
+        assert [n.id for n in notes] == [seeded["front"], seeded["world"]]  # rank, not flag
+        assert [a.id for a in articles] == [seeded["articles"][2], seeded["articles"][0]]
     with Session(engine) as s, pytest.raises(LookupError):
         queries.set_flag(s, "note", 999, "read")
 
