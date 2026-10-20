@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% block body_class %}sky{% endblock %}
 {% block content %}
 <section class="empty">
-  <h2>Todavía no hay ediciones</h2>
+  <svg viewBox="0 0 200 60" aria-hidden="true"><circle cx="100" cy="58" r="26" fill="var(--sun)"/><line x1="20" y1="58" x2="180" y2="58" stroke="currentColor"/></svg>
+  <h1>Todavía no hay ediciones</h1>
   <p>La primera edición se prepara a la hora configurada, o puedes generarla ahora con <code>newspaper generate</code>.</p>
 </section>
 {% endblock %}

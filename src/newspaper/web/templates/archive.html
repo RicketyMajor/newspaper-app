@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Archivo · {{ paper }}{% endblock %}
 {% block content %}
-<h2 class="section-title page">Archivo</h2>
-<ul class="plain">
+<h1 class="page-title">Archivo</h1>
+<ul class="days">
   {% for e in editions %}
-  {% set read = e.notes|selectattr('is_read')|list|length %}
-  <li><a href="/e/{{ e.edition_date }}">{{ e.edition_date|long_date|capitalize }}</a> <span class="meta">{{ e.notes|length }}&nbsp;{{ 'nota' if e.notes|length == 1 else 'notas' }} · {{ read }}&nbsp;{{ 'leída' if read == 1 else 'leídas' }}</span></li>
+  {% set read, total = suns[e.id] %}
+  <li><a href="/e/{{ e.edition_date }}">
+    <span class="d">{{ e.edition_date|long_date|capitalize }}</span>
+    <span class="m">{{ e.notes|length }}&nbsp;{{ 'nota' if e.notes|length == 1 else 'notas' }} · {{ read }} de {{ total }} esenciales</span>
+    {# How far the sun rose that day: the core read, as a small horizontal rail. #}
+    <span class="mini" aria-hidden="true" style="--sol: {{ (read / total) if total else 0 }}"><i></i></span>
+  </a></li>
   {% else %}
   <li class="hint">Todavía no hay ediciones.</li>
   {% endfor %}

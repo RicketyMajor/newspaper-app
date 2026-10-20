@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · {{ paper }}{% endblock %}
+{% block body_class %}sky{% endblock %}
 {% block content %}
 <section class="empty">
-  <h2>{{ title }}</h2>
+  <svg viewBox="0 0 200 60" aria-hidden="true"><circle cx="100" cy="58" r="26" fill="var(--sun)"/><line x1="20" y1="58" x2="180" y2="58" stroke="currentColor"/></svg>
+  <h1>{{ title }}</h1>
   <p>{{ message }}</p>
   <p><a href="/">Volver a la portada</a></p>
 </section>

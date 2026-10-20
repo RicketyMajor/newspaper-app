@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import line, original, toggles with context %}
+{% block title %}Guardado · {{ paper }}{% endblock %}
+{% block content %}
+<h1 class="page-title">Guardado</h1>
+<nav class="filter" aria-label="Filtrar">
+  {% for key, label in (('todo', 'Todo'), ('favoritos', 'Favoritos'), ('guardados', 'Guardados')) %}
+  <a href="/guardado{% if key != 'todo' %}?f={{ key }}{% endif %}"{% if f == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+{% set hint = {'todo': '«Favorita» o «Guardar»', 'favoritos': '«Favorita»', 'guardados': '«Guardar»'}[f] %}
+<section class="band" aria-labelledby="g-notas">
+  <h2 class="opener" id="g-notas">Notas</h2>
+  {% for note in notes %}{{ line(note) }}{% else %}<p class="hint">Ninguna nota todavía. Pulsa {{ hint }} al final de una nota para encontrarla aquí.</p>{% endfor %}
+</section>
+<section class="band" aria-labelledby="g-originales">
+  <h2 class="opener" id="g-originales">Originales</h2>
+  <ul class="results">
+    {% for a in articles %}
+    <li id="a-{{ a.id }}" class="{{ 'is-read' if a.is_read }}">
+      <p class="o">{{ a.source_name }}</p>
+      {{ original(a) }}
+      {{ toggles('a', a) }}
+    </li>
+    {% else %}
+    <li class="hint">Ningún original todavía. Pulsa «Guardar» junto a una fuente de cualquier nota.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

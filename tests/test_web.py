@@ -77,6 +77,30 @@ def test_notes_after_the_core_count_as_more_and_end_the_edition(client, engine, 
     assert 'rel="next"' not in page
 
 
+def test_saved_merges_favorites_and_saved_and_old_urls_redirect(client, seeded):
+    client.post(f"/n/{seeded['front']}/estado?flag=favorite")
+    client.post(f"/n/{seeded['front']}/estado?flag=saved")
+    everything = client.get("/guardado").text
+    assert everything.count("Senado aprueba reforma") == 1  # favorite and saved: listed once
+    assert "Senado aprueba reforma" in client.get("/guardado?f=favoritos").text
+    client.post(f"/n/{seeded['front']}/estado?flag=saved")
+    assert "Senado aprueba reforma" not in client.get("/guardado?f=guardados").text
+    for old, new in (("/favoritos", "favoritos"), ("/guardados", "guardados")):
+        r = client.get(old, follow_redirects=False)
+        assert (r.status_code, r.headers["location"]) == (301, f"/guardado?f={new}")
+
+
+def test_search_hits_name_the_day_and_section_of_notes(client, seeded):
+    page = client.get("/buscar?q=senado").text
+    assert "10 de octubre" in page and "Chile" in page
+
+
+def test_archive_shows_how_far_the_sun_rose_each_day(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).is_read = True
+    assert "1 de 2 esenciales" in client.get("/archivo").text
+
+
 def test_noon_page_closes_the_core(client, seeded):
     page = client.get("/fin/2026-10-10").text
     assert "Pleno día." in page and "Terminaste lo esencial" in page
@@ -95,7 +119,14 @@ def test_tabbar_marks_the_current_page(client, seeded):
 
 
 def test_pages_load_nothing_from_other_origins(client, seeded):
-    for path in ("/", f"/n/{seeded['front']}", "/archivo", "/buscar"):
+    for path in (
+        "/",
+        f"/n/{seeded['front']}",
+        "/archivo",
+        "/buscar",
+        "/guardado",
+        "/fin/2026-10-10",
+    ):
         html = client.get(path).text
         assert not re.search(r'(src|href)="(https?:)?//', html), path  # originals use /a/{id}
     css = client.get("/static/style.css").text
@@ -179,8 +210,8 @@ def test_toggle_state_and_flag_lists(client, seeded):
     assert response.headers["location"] == f"/n/{note}"
     client.post(f"/a/{article}/estado", params={"flag": "saved"})
 
-    assert "Senado aprueba reforma" in client.get("/favoritos").text
-    assert "Artículo 2" in client.get("/guardados").text
+    assert "Senado aprueba reforma" in client.get("/guardado?f=favoritos").text
+    assert "Artículo 2" in client.get("/guardado?f=guardados").text
     assert client.post(f"/n/{note}/estado", params={"flag": "bogus"}).status_code == 422
     assert client.post("/n/999/estado", params={"flag": "read"}).status_code == 404
 

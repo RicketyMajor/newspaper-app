@@ -102,6 +102,7 @@
 }
 
 * { box-sizing: border-box; }
+html { min-height: 100%; }  /* a short page's sky covers the screen instead of repeating */
 
 body {
   margin: 0;
@@ -360,6 +361,59 @@ body.noon { background: linear-gradient(180deg, var(--noon-a), var(--noon-b) 55%
 .noon-wrap .cta .s { border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); }
 .noon-wrap .tomorrow { margin-top: 14px; text-align: center; font: 400 12px/1.4 var(--sans); color: var(--muted); }
 body.noon .colophon { display: none; }
+
+/* Archive, search and saved: lists in the same world */
+.page-title { padding: 8px 20px 4px; font-weight: 300; font-size: 34px; line-height: 1.1; letter-spacing: -0.015em; }
+.hint { padding: 12px 0; color: var(--muted); font-style: italic; }
+.days, .results { margin: 0; padding: 0 20px; list-style: none; }
+.days li { border-bottom: 1px solid var(--line); }
+.days a { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 16px; min-height: 56px; padding: 12px 0; text-decoration: none; }
+.days .d { font-size: 18px; line-height: 1.25; }
+.days .m { grid-column: 1; font: 400 12px/1.3 var(--sans); color: var(--muted); }
+.days .mini { position: relative; grid-row: 1 / 3; grid-column: 2; width: 64px; height: 12px; }
+.days .mini::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 7px); opacity: 0.35; }
+.days .mini i { position: absolute; top: 50%; left: calc(var(--sol) * (100% - 12px)); translate: 0 -50%; width: 12px; height: 12px; border-radius: 50%; background: var(--sun); }
+
+.search { padding: 8px 20px 16px; }
+.search input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--card);
+  color: var(--ink);
+  font: 400 16px/1 var(--sans);  /* 16px: phones zoom into smaller inputs */
+}
+.search input::placeholder { color: var(--muted); opacity: 1; }
+.results-title { padding: 0 20px 4px; }
+.results li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.results li.hint { border: 0; }
+.results .o { font: 600 11.5px/1.4 var(--sans); color: var(--muted); }
+.results li > a { display: block; margin-top: 4px; font-size: 17px; line-height: 1.3; text-decoration: none; }
+.results li.is-read > a { color: var(--muted); }
+.snippet { margin-top: 4px; font-size: 15px; line-height: 1.45; color: var(--muted); }
+.band .results { padding: 0; }
+
+.filter { display: flex; gap: 8px; padding: 4px 20px 0; }
+.filter a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  font: 600 13px/1 var(--sans);
+  text-decoration: none;
+}
+.filter a[aria-current] { background: var(--ink); border-color: var(--ink); color: var(--mist); }
+
+/* Empty and error: the sun waiting on the horizon */
+.empty { max-width: 30rem; margin: 0 auto; padding: 56px 20px 24px; text-align: center; }
+.empty svg { display: block; width: 200px; height: 60px; margin: 0 auto 20px; overflow: hidden; color: var(--ink); }
+.empty h1 { font-weight: 300; font-size: 32px; line-height: 1.15; }
+.empty p { margin-top: 12px; }
+.empty code { font-size: 0.85em; }
 
 .colophon {
   max-width: var(--column);

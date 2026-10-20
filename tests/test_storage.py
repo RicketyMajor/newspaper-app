@@ -94,7 +94,13 @@ def test_search_ignores_accents_supports_prefixes_and_is_injection_safe(engine, 
     with Session(engine) as s:
         assert [h.id for h in queries.search(s, "pension")] == [seeded["front"]]
         assert [h.id for h in queries.search(s, "climat")] == [seeded["world"]]
-        assert queries.search(s, "senado REFORMA")[0].kind == "note"
+        hit = queries.search(s, "senado REFORMA")[0]
+        assert (hit.kind, hit.day, hit.section) == ("note", date(2026, 10, 10), "Chile")
+        original = add_article(s, 9)
+        s.flush()
+        queries.index_for_search(s, "article", original.id, "Senado en vilo", "")
+        article = next(h for h in queries.search(s, "vilo"))
+        assert (article.kind, article.day, article.section) == ("article", None, None)
         assert queries.search(s, "") == []
         assert queries.search(s, '" OR * NEAR(') == []
 

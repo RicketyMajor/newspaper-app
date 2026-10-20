@@ -1,21 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Buscar · {{ paper }}{% endblock %}
 {% block content %}
-<form class="search page-search" action="/buscar" role="search">
-  <label for="q" class="sr-only">Buscar</label>
-  <input id="q" name="q" type="search" placeholder="Buscar en el archivo…" value="{{ q or '' }}"{% if not q %} autofocus{% endif %}>
+<h1 class="page-title">Buscar</h1>
+<form class="search" action="/buscar" role="search">
+  <label for="q" class="sr-only">Buscar en todas las ediciones</label>
+  <input id="q" name="q" type="search" placeholder="Buscar en todas las ediciones…" value="{{ q or '' }}"{% if not q %} autofocus{% endif %}>
 </form>
-<h2 class="section-title page">Resultados{% if q %} para «{{ q }}»{% endif %}</h2>
-<ul class="plain results">
+{% if q %}<h2 class="opener results-title">Resultados para «{{ q }}»</h2>{% endif %}
+<ul class="results">
   {% for h in hits %}
   <li>
-    <span class="tag">{{ 'Nota' if h.kind == 'note' else 'Original' }}</span>
+    <p class="o">{{ 'Nota' if h.kind == 'note' else 'Original' }}{% if h.day %} · {{ h.day|long_date }} · {{ h.section }}{% endif %}</p>
     {% if h.kind == 'note' %}<a href="/n/{{ h.id }}">{{ h.title|inline|safe }}</a>
     {% else %}<a href="/a/{{ h.id }}" target="_blank" rel="noopener">{{ h.title }}<span class="sr-only"> (se abre en otra pestaña)</span></a>{% endif %}
     <p class="snippet">{{ h.snippet }}</p>
   </li>
   {% else %}
-  <li>{% if q %}Sin resultados.{% else %}Escribe algo para buscar en todas las ediciones.{% endif %}</li>
+  <li class="hint">{% if q %}Sin resultados.{% else %}Escribe algo para buscar en todas las ediciones.{% endif %}</li>
   {% endfor %}
 </ul>
 {% endblock %}

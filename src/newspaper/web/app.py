@@ -43,7 +43,6 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     templates.env.filters["long_date"] = long_date
     # Cache-busting for /static after an upgrade: the newest file's mtime.
     templates.env.globals["static_v"] = int(max(p.stat().st_mtime for p in STATIC.iterdir()))
-    templates.env.filters["lede"] = lambda body: body.strip().split("\n\n", 1)[0]
     templates.env.filters["es_list"] = lambda items: " y ".join(
         [", ".join(items[:-1]), items[-1]] if len(items) > 1 else items
     )
@@ -211,28 +210,33 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
     @app.get("/archivo", response_class=HTMLResponse)
     def archive(request: Request, s: DB):
-        return render(request, s, "archive.html", editions=queries.list_editions(s))
+        editions = queries.list_editions(s)
+        cores = {e.id: queries.reading_order(e.notes)[0] for e in editions}
+        suns = {e: (sum(n.is_read for n in core), len(core)) for e, core in cores.items()}
+        return render(request, s, "archive.html", editions=editions, suns=suns)
 
     @app.get("/buscar", response_class=HTMLResponse)
     def search(request: Request, s: DB, q: str = ""):
         hits = queries.search(s, q)
         return render(request, s, "search.html", q=q, hits=hits)
 
-    @app.get("/favoritos", response_class=HTMLResponse)
-    def favorites(request: Request, s: DB):
-        notes, articles = queries.flagged(s, "favorite")
-        return render(
-            request, s, "flagged.html", title="Favoritos", toggle="Favorito",
-            notes=notes, articles=articles,
-        )  # fmt: skip
+    @app.get("/guardado", response_class=HTMLResponse)
+    def saved(request: Request, s: DB, f: Literal["todo", "favoritos", "guardados"] = "todo"):
+        flags = {"todo": ("favorite", "saved"), "favoritos": ("favorite",), "guardados": ("saved",)}
+        notes, articles = [], []
+        for flag in flags[f]:
+            more_notes, more_articles = queries.flagged(s, flag)
+            notes += [n for n in more_notes if n not in notes]  # favorite and saved: once
+            articles += [a for a in more_articles if a not in articles]
+        return render(request, s, "saved.html", f=f, notes=notes, articles=articles)
 
-    @app.get("/guardados", response_class=HTMLResponse)
-    def saved(request: Request, s: DB):
-        notes, articles = queries.flagged(s, "saved")
-        return render(
-            request, s, "flagged.html", title="Guardados", toggle="Guardado",
-            notes=notes, articles=articles,
-        )  # fmt: skip
+    @app.get("/favoritos")
+    def favorites_moved():
+        return RedirectResponse("/guardado?f=favoritos", 301)
+
+    @app.get("/guardados")
+    def saved_moved():
+        return RedirectResponse("/guardado?f=guardados", 301)
 
     @app.get("/estado")
     def status(s: DB):

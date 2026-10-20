@@ -29,20 +29,6 @@
 <a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
 {% endmacro %}
 
-{% macro card(note, lead=False, kicker=True) %}
-<article class="card{% if lead %} lead{% endif %}{% if note.is_read %} is-read{% endif %}">
-  {% if kicker or note.is_favorite %}<p class="kicker">
-    {%- if kicker %}{{ note.section }}{% endif %}{% if kicker and note.is_favorite %} · {% endif %}
-    {%- if note.is_favorite %}<span aria-hidden="true">★</span><span class="sr-only">Favorito</span>{% endif -%}
-  </p>{% endif %}
-  <h3><a href="/n/{{ note.id }}">{% if note.is_read %}<span class="sr-only">Leída: </span>{% endif %}{{ note.headline|inline|safe }}</a></h3>
-  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
-  {% if lead %}<div class="lede">{{ note.body|lede|markdown|safe }}</div>{% endif %}
-  <p class="meta">{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min {{ tags(note) }}</p>
-  {% if lead and note.differences %}<p class="teaser"><a href="/n/{{ note.id }}#difieren">Ver dónde difieren los medios</a></p>{% endif %}
-</article>
-{% endmacro %}
-
 {% macro original(a) -%}
 <a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
 {%- endmacro %}

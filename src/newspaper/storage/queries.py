@@ -25,6 +25,8 @@ class SearchHit:
     id: int
     title: str
     snippet: str
+    day: date | None = None  # notes only: their edition and section
+    section: str | None = None
 
 
 _READY = select(Edition).where(Edition.status == EditionStatus.ready)
@@ -98,12 +100,18 @@ def search(s: Session, query: str, limit: int = 50) -> list[SearchHit]:
     match = " ".join(f'"{t}"*' for t in terms)
     rows = s.execute(
         text(
-            "SELECT kind, ref_id, title, snippet(search, 3, '', '', '…', 16) FROM search "
-            "WHERE search MATCH :match ORDER BY rank LIMIT :limit"
+            "SELECT search.kind, search.ref_id, search.title, "
+            "snippet(search, 3, '', '', '…', 16), e.edition_date, n.section FROM search "
+            "LEFT JOIN notes n ON search.kind = 'note' AND n.id = search.ref_id "
+            "LEFT JOIN editions e ON e.id = n.edition_id "
+            "WHERE search MATCH :match ORDER BY search.rank LIMIT :limit"  # notes have a rank too
         ),
         {"match": match, "limit": limit},
     )
-    return [SearchHit(kind, int(ref_id), title, snippet) for kind, ref_id, title, snippet in rows]
+    return [
+        SearchHit(kind, int(ref_id), title, snippet, day and date.fromisoformat(day), section)
+        for kind, ref_id, title, snippet, day, section in rows
+    ]
 
 
 def index_for_search(s: Session, kind: Kind, ref_id: int, title: str, body: str) -> None:

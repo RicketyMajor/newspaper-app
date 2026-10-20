@@ -1,7 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import card %}
+{% from "_macros.html" import lead, line %}
 {% block title %}{{ section }} · {{ paper }}{% endblock %}
+{% block body_class %}sky{% endblock %}
 {% block content %}
-<h2 class="section-title page">{{ section }}</h2>
-<div class="grid">{% for note in notes %}{{ card(note, kicker=False) }}{% else %}<p>Sin notas en esta sección.</p>{% endfor %}</div>
+<section class="band" aria-labelledby="b-section">
+  <h1 class="opener" id="b-section">{{ section }} <small>{{ notes|length }}&nbsp;{{ 'nota' if notes|length == 1 else 'notas' }}</small></h1>
+  {% for note in notes %}{% if loop.first %}{{ lead(note) }}{% else %}{{ line(note) }}{% endif %}{% else %}<p class="hint">Sin notas en esta sección.</p>{% endfor %}
+</section>
 {% endblock %}
