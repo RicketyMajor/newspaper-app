@@ -33,6 +33,8 @@ document.addEventListener("submit", async (event) => {
   button.setAttribute("aria-pressed", String(value));
   if (new URL(form.action).searchParams.get("flag") === "read") {
     form.closest("li")?.classList.toggle("is-read", value);  // an original's title styling
+    // Unmarking the note takes back the "Leída · el sol subió" line the auto-mark showed.
+    if (!value) form.closest("article.note")?.querySelector(".done")?.setAttribute("hidden", "");
   }
   live.textContent = `${button.lastChild.textContent.trim()}: ${value ? "sí" : "no"}`;
 });
