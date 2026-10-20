@@ -77,18 +77,18 @@ if (readForm && "IntersectionObserver" in window) {
 
 // Walking the reading path: swipe or keys go to the previous or next note. The direction rides
 // along to the next page, where pagereveal (inline in base.html) picks the slide.
-function heading(rel) {
+function rememberDirection(rel) {
   try { sessionStorage.alba_dir = rel === "next" ? "adelante" : "atras"; } catch {}
 }
 function walk(rel) {
   const link = document.querySelector(`link[rel="${rel}"]`);
   if (!link) return;
-  heading(rel);
+  rememberDirection(rel);
   location.href = link.href;
 }
 document.addEventListener("click", (event) => {
   const rel = event.target.closest('a[rel="next"], a[rel="prev"]')?.rel;
-  if (rel) heading(rel);  // the "Siguiente" card slides like a swipe
+  if (rel) rememberDirection(rel);  // the "Siguiente" card slides like a swipe
 });
 if (note) {
   // Touch events, not pointer events: Chrome cancels the pointer once it decides it's a scroll.

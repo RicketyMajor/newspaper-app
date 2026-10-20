@@ -12,11 +12,15 @@
     <line x1="0" y1="118" x2="200" y2="118" stroke="currentColor"/>
   </svg>
   <h1>Pleno día.</h1>
+  {% if core_left %}
+  <p class="lead">Te faltan {{ core_left }} de las {{ core_total }}&nbsp;notas esenciales.</p>
+  <p class="left"><a href="/e/{{ edition.edition_date }}">Volver a ellas</a></p>
+  {% else %}
   <p class="lead">Terminaste lo esencial: {{ core_total }}&nbsp;{{ 'nota' if core_total == 1 else 'notas' }}, {{ core_minutes }}&nbsp;minutos, de {{ core_sections }}&nbsp;{{ 'sección' if core_sections == 1 else 'secciones' }}.</p>
-  {% if core_left %}<p class="left">Te faltan {{ core_left }} de lo esencial. <a href="/e/{{ edition.edition_date }}">Volver a ellas</a></p>{% endif %}
+  {% endif %}
   <p class="chips">{% for name, n in bands %}<span>{{ name }} {{ n }}</span>{% endfor %}</p>
   <div class="cta">
-    {% if first_rest %}<a class="p" href="/n/{{ first_rest.id }}">Seguir con el resto · {{ edition.notes|length - core_total }}&nbsp;notas</a>{% endif %}
+    {% if first_rest %}<a class="p" href="/n/{{ first_rest.id }}">Seguir con el resto · {{ rest_total }}&nbsp;notas</a>{% endif %}
     <a class="s" href="/e/{{ edition.edition_date }}">Volver a la portada</a>
   </div>
   <p class="tomorrow">La próxima edición sale mañana cerca de las {{ next_hour }}.</p>

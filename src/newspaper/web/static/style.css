@@ -185,7 +185,7 @@ a { color: inherit; text-underline-offset: 0.16em; text-decoration-thickness: 1p
 
 /* Today: one dawn sky, a band per section, the sun of the core on the rail */
 body.sky { background: linear-gradient(180deg, var(--r0), var(--r1) 20%, var(--r2) 40%, var(--r3) 60%, var(--r4) 80%, var(--r5)); }
-body.sky .top { padding-right: 52px; }
+body.sky .top, body.sky .colophon { padding-right: 52px; }  /* clear of the rail */
 .prog { max-width: var(--column); margin: 0 auto; padding: 0 52px 0 20px; font: 400 12px/1.4 var(--sans); color: var(--muted); }
 .prog a { color: var(--sunink); font-weight: 700; }
 .rail {
@@ -256,8 +256,19 @@ details summary {
   list-style: none;
 }
 details summary::-webkit-details-marker { display: none; }
-details summary::after { content: "▾"; transition: rotate 0.2s; }
-details[open] summary::after { rotate: 180deg; }
+/* Drawn chevrons, not glyphs: they keep their weight in every font. */
+details summary::after, .bar .back {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg;
+  translate: 0 -2px;
+  transition: rotate 0.2s, translate 0.2s;
+}
+details[open] summary::after { rotate: 225deg; translate: 0 2px; }
+.bar .back { margin-right: 2px; rotate: 135deg; translate: 0; }
 details .more { border-top: 1px solid var(--line); }
 
 /* The note: a calm reading column under a fixed bar */
@@ -279,8 +290,13 @@ details .more { border-top: 1px solid var(--line); }
 .bar .pos i { width: 10px; height: 10px; border-radius: 50%; background: var(--sun); }
 /* A reading line that fills with the scroll; browsers without scroll timelines just skip it. */
 .readline { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--sun); transform-origin: left; transform: scaleX(0); }
-@supports (animation-timeline: scroll()) {
-  .readline { animation: read linear both; animation-timeline: scroll(root); }
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    .readline { animation: read linear both; animation-timeline: scroll(root); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .readline { display: none; }
 }
 @supports not (animation-timeline: scroll()) {
   .readline { display: none; }
@@ -329,7 +345,7 @@ p.next a { font: 600 13px/1 var(--sans); }
 .toggles button {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 22px;

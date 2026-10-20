@@ -93,7 +93,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def edition_page(request: Request, s: Session, edition) -> HTMLResponse:
         if edition is None:
             return render(request, s, "empty.html", edition=None)
-        core, _rest = queries.reading_order(edition.notes)
+        core = queries.reading_order(edition.notes)[0]
         # Each band: its first note (the core's) big, the rest folded under "y N más".
         sections = []
         for name, _ in queries.section_counts(s, edition.id):
@@ -139,20 +139,22 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 return f"{j + 1} de {len(core)}"
             return f"Más · {j - len(core) + 1} de {len(rest)}"
 
-        if i == len(core) - 1:  # the core ends at noon, then the rest of the edition follows
+        at_noon = i == len(core) - 1  # the core ends at noon, then the rest of the edition
+        next_note = path[i + 1] if i + 1 < len(path) and not at_noon else None
+        if at_noon:
             next_url = f"/fin/{found.edition.edition_date}"
         else:
-            next_url = f"/n/{path[i + 1].id}" if i + 1 < len(path) else None
-        # The header takes its band's color: the front page is the first band of the sky.
+            next_url = f"/n/{next_note.id}" if next_note else None
+        # The header takes its band's color: the front page is the first band of the sky, and
+        # the bands spread over the six stops of the ramp (--r0…--r5 in style.css).
         sections = [name for name, _ in queries.section_counts(s, found.edition.id)]
         band = 0 if found.is_front else sections.index(found.section) + 1
         return render(
             request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
             prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
-            next_note=path[i + 1] if next_url and next_url.startswith("/n/") else None,
-            next_label=label(i + 1),
+            next_note=next_note, next_label=label(i + 1),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
-            tint=round(band * 5 / max(1, len(sections))),
+            tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
         )  # fmt: skip
 
     @app.get("/fin/{day}", response_class=HTMLResponse)
@@ -167,7 +169,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         ]
         return render(
             request, s, "end.html", edition=found, core_total=len(core),
-            core_minutes=sum(n.read_minutes for n in core), bands=bands,
+            core_minutes=sum(n.read_minutes for n in core), bands=bands, rest_total=len(rest),
             core_sections=len({n.section for n in core}),
             first_rest=rest[0] if rest else None, core_left=sum(not n.is_read for n in core),
             next_hour=f"{config.general.edition_hour:02d}:15",

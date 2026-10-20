@@ -101,13 +101,22 @@ def test_archive_shows_how_far_the_sun_rose_each_day(client, engine, seeded):
     assert "1 de 2 esenciales" in client.get("/archivo").text
 
 
-def test_noon_page_closes_the_core(client, seeded):
+def test_noon_page_closes_the_core(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        for note in s.get(Note, seeded["front"]).edition.notes:
+            note.is_read = True
     page = client.get("/fin/2026-10-10").text
     assert "Pleno día." in page and "Terminaste lo esencial" in page
     assert "de 2&nbsp;secciones" in page  # Chile is only on the front page, and still counts
-    assert "Te faltan 2 de lo esencial" in page
+    assert "Te faltan" not in page
     assert "cerca de las 06:15" in page  # edition_hour 6
     assert client.get("/fin/2099-01-01").status_code == 404
+
+
+def test_noon_reached_early_says_what_is_left_instead_of_claiming_it_is_done(client, seeded):
+    page = client.get("/fin/2026-10-10").text
+    assert "Te faltan 2 de las 2&nbsp;notas esenciales" in page
+    assert "Terminaste lo esencial" not in page
 
 
 def test_tabbar_marks_the_current_page(client, seeded):
