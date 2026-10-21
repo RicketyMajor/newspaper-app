@@ -52,6 +52,12 @@ class Edition(Base):
     finished_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(Text)
     feed_errors: Mapped[str | None] = mapped_column(Text)
+    # The daily notice (#17): when it went out, when the phone got it and tapped it, and the
+    # first opening from any device. Opening is not reading.
+    notified_at: Mapped[datetime | None]
+    delivered_at: Mapped[datetime | None]
+    clicked_at: Mapped[datetime | None]
+    opened_at: Mapped[datetime | None]
 
     notes: Mapped[list[Note]] = relationship(
         back_populates="edition", cascade="all, delete-orphan", order_by="Note.rank"
@@ -101,8 +107,23 @@ class Note(ReadingState, Base):
     read_minutes: Mapped[int] = mapped_column(default=1)
     interest: Mapped[str | None] = mapped_column(Text)  # the reader's phrase the model picked
     interest_liked: Mapped[bool | None]  # True: "sí", False: "no"
+    opened_at: Mapped[datetime | None]  # first opening; is_read stays for reaching the sources
 
     edition: Mapped[Edition] = relationship(back_populates="notes")
     articles: Mapped[list[Article]] = relationship(
         secondary=note_articles, order_by=Article.published_at
     )
+
+
+class PushSubscription(Base):
+    """A browser that asked for the daily notice (Web Push, #17)."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint: Mapped[str] = mapped_column(String(2000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    mobile: Mapped[bool] = mapped_column(default=False)  # only the phone fills the funnel
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    gone_at: Mapped[datetime | None]  # the push service answered 404/410: renew, don't send

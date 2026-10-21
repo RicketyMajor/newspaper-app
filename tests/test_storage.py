@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from newspaper.storage import database, queries
 from newspaper.storage.database import open_db
-from newspaper.storage.models import Edition, EditionStatus, Note, note_articles
+from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription, note_articles
 
 from .conftest import add_article
 
@@ -143,3 +143,30 @@ def test_open_db_tolerates_a_column_another_process_just_added(config, monkeypat
     # when fetch and generate both migrate at boot.
     monkeypatch.setitem(database.ADDED_COLUMNS, "notes", {"INTEREST": "TEXT"})
     open_db(config)
+
+
+def test_open_db_adds_the_notice_columns_to_an_older_database(config):
+    path = config.storage.database_path
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE editions (id INTEGER PRIMARY KEY, edition_date DATE)")
+    old.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, headline TEXT)")
+    old.commit()
+    old.close()
+
+    engine = open_db(config)
+
+    with engine.connect() as c:
+        editions = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(editions)")}
+        notes = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(notes)")}
+    assert {"notified_at", "delivered_at", "clicked_at", "opened_at"} <= editions
+    assert "opened_at" in notes
+
+
+def test_push_subscriptions_are_unique_by_endpoint(engine):
+    with Session(engine) as s, s.begin():
+        s.add(PushSubscription(endpoint="https://fcm.googleapis.com/x", p256dh="k", auth="a"))
+    with pytest.raises(IntegrityError), Session(engine) as s, s.begin():
+        s.add(PushSubscription(endpoint="https://fcm.googleapis.com/x", p256dh="k", auth="a"))
+    with Session(engine) as s:
+        row = s.scalars(select(PushSubscription)).one()
+    assert row.mobile is False and row.gone_at is None and row.created_at is not None

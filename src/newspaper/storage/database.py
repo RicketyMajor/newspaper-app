@@ -19,7 +19,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 """
 # ponytail: hand-written migration for columns added after the first release; move to a
 # migration tool (Alembic) if a third change like this shows up.
-ADDED_COLUMNS = {"notes": {"interest": "TEXT", "interest_liked": "BOOLEAN"}}
+ADDED_COLUMNS = {
+    "notes": {"interest": "TEXT", "interest_liked": "BOOLEAN", "opened_at": "DATETIME"},
+    "editions": {
+        "notified_at": "DATETIME",
+        "delivered_at": "DATETIME",
+        "clicked_at": "DATETIME",
+        "opened_at": "DATETIME",
+    },
+}
 
 
 def open_db(config: NewspaperConfig) -> Engine:
