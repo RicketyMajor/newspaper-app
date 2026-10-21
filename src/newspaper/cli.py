@@ -7,13 +7,15 @@ import logging
 import shutil
 import sys
 import tomllib
-from datetime import datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import click
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import schedule
@@ -28,6 +30,7 @@ from .config.models import FeedConfig, NewspaperConfig
 from .edition.today import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
+from .storage.models import Edition, PushSubscription
 
 # ponytail: redirected output on Windows may be cp1252; replace unencodable chars, don't crash.
 for _stream in (sys.stdout, sys.stderr):
@@ -76,6 +79,16 @@ def _log(config: NewspaperConfig, message: str, style: str = "dim") -> None:
         f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {' '.join(message.splitlines())}\n")
 
 
+def _notify(config: NewspaperConfig, day: date) -> None:
+    """The day's automatic notice (#17). It never fails the command that calls it."""
+    try:
+        from . import notify  # heavy (cryptography): keep the readers fast
+
+        notify.edition_notice(config, day, functools.partial(_log, config))
+    except Exception as e:
+        _log(config, f"Aviso: {str(e) or type(e).__name__}", style="red")
+
+
 @main.command()
 @click.option("--force", is_flag=True, help="Regenera la edición de hoy aunque ya esté lista.")
 @click.pass_context
@@ -88,10 +101,13 @@ def generate(ctx: click.Context, force: bool) -> None:
     log(f"Preparando la edición del {local_today(config):%d-%m-%Y}…", style="none")
     with schedule.keep_awake():
         result = run_generate(config, force=force, log=log)
-    log(
-        result.message,
-        style={"ready": "green", "failed": "red", "skipped": "yellow"}[result.status],
-    )
+        log(
+            result.message,
+            style={"ready": "green", "failed": "red", "skipped": "yellow"}[result.status],
+        )
+        # Every result, skipped too: an edition whose process died before notifying gets its
+        # notice now. Its own date, so a run past midnight notifies about its edition.
+        _notify(config, result.edition_date)
     if result.status == "failed":
         raise SystemExit(1)
 
@@ -104,6 +120,9 @@ def fetch(ctx: click.Context) -> None:
     from .ingestion import rss
 
     config = _load(ctx)
+    # First, the pending notice (no network at 06:20, a refused POST): before downloading,
+    # because the scheduler kills a fetch stuck on a feed.
+    _notify(config, local_today(config))
     try:
         new, errors = ingest(open_db(config), config, rss.make_client())
     except RuntimeError as e:
@@ -112,6 +131,17 @@ def fetch(ctx: click.Context) -> None:
     for error in errors:
         _log(config, f"Descarga: {error}", style="yellow")
     console.print(f"Artículos nuevos: {new}")
+
+
+@main.command(name="notify")
+@click.pass_context
+def notify_command(ctx: click.Context) -> None:
+    """Manda ahora el aviso de la edición de hoy (para probarlo o reintentarlo)."""
+    from . import notify
+
+    config = _load(ctx)
+    text = notify.resend(config, local_today(config), functools.partial(_log, config))
+    console.print(text, markup=False)
 
 
 @main.command()
@@ -256,6 +286,32 @@ def config(ctx: click.Context) -> None:
     click.edit(filename=str(path))
 
 
+def _funnel(config: NewspaperConfig, edition: Edition) -> str:
+    """Notice → arrived → tapped (the phone) → opened → read (any device)."""
+    zone = ZoneInfo(config.general.timezone)
+
+    def at(moment: datetime | None) -> str:
+        return "—" if moment is None else f"{moment.replace(tzinfo=UTC).astimezone(zone):%H:%M}"
+
+    core, _ = queries.reading_order(edition.notes)
+    opened = sum(n.opened_at is not None for n in edition.notes)
+    notice = f"Aviso {at(edition.notified_at)}" if edition.notified_at else "Sin aviso"
+    return (
+        f"{notice} · llegó {at(edition.delivered_at)} · tocado {at(edition.clicked_at)}"
+        f" · abierta {at(edition.opened_at)}"
+        f" · {opened} {'nota abierta' if opened == 1 else 'notas abiertas'}"
+        f" · {sum(n.is_read for n in core)} de {len(core)} esenciales leídas"
+    )
+
+
+def _subscriptions(s: Session) -> str:
+    live = list(s.scalars(select(PushSubscription).where(PushSubscription.gone_at.is_(None))))
+    if not live:
+        return "Avisos: ninguna suscripción"
+    word = "suscripción" if len(live) == 1 else "suscripciones"
+    return f"Avisos: {len(live)} {word} ({sum(p.mobile for p in live)} en el teléfono)"
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
@@ -282,3 +338,7 @@ def status(ctx: click.Context) -> None:
                 )
         else:
             console.print("Todavía no hay ediciones listas.")
+        shown = today or latest
+        if shown is not None:
+            console.print(_funnel(config, shown), markup=False, highlight=False, soft_wrap=True)
+        console.print(_subscriptions(s), markup=False, highlight=False)
