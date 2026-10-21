@@ -437,6 +437,17 @@ def test_resend_puts_the_previous_marks_back_when_nothing_goes_out(config, engin
     assert marks(engine) == before
 
 
+def test_a_failed_resend_never_undoes_one_that_succeeded_meanwhile(config, engine, seeded, push):
+    theirs = (datetime(2026, 10, 10, 12, 0, 1), datetime(2026, 10, 10, 12, 0, 2), None)
+    push.result = notify.Sent(total=1)
+    # Another `newspaper notify` succeeds, and its phone answers, while ours is still sending.
+    push.during = lambda: set_edition(engine, notified_at=theirs[0], delivered_at=theirs[1])
+
+    notify.resend(config, DAY, lambda _: None)
+
+    assert marks(engine) == theirs
+
+
 def test_resend_explains_when_there_is_nothing_to_send(config, engine, seeded, push):
     assert notify.resend(config, date(2026, 10, 11), print) == "Todavía no hay edición de hoy."
     with Session(engine) as s, s.begin():

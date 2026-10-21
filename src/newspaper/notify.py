@@ -304,9 +304,11 @@ def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> st
     vapid = load_key(key_path(config))
     if vapid is None:
         return f"Falta {KEY_FILE}: abre la web una vez para crearla."
-    _set(engine, edition_id, notified_at=utcnow(), delivered_at=None, clicked_at=None)
+    now = utcnow()
+    _set(engine, edition_id, notified_at=now, delivered_at=None, clicked_at=None)
     sent = send(engine, vapid, message, log)
     if not sent.accepted and not sent.uncertain:
-        _set(engine, edition_id, **before)
+        # Only if still ours: another notify may have succeeded meanwhile.
+        _set(engine, edition_id, (Edition.notified_at == now,), **before)
     text = f"Aviso enviado a {sent.accepted} de {sent.total} suscripciones."
     return text + (f" {sent.uncertain} sin respuesta." if sent.uncertain else "")
