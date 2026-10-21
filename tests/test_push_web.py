@@ -3,16 +3,19 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from newspaper import notify
-from newspaper.storage.models import Edition, PushSubscription
+from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 from newspaper.web.app import create_app
 
 from .test_notify import browser, compressed_point
 
 FCM = "https://fcm.googleapis.com/fcm/send/phone"
 SAME = {"sec-fetch-site": "same-origin"}
+NAV = {"sec-fetch-dest": "document"}
 
 
 @pytest.fixture
@@ -178,3 +181,52 @@ def test_a_broken_key_turns_the_notices_off_not_the_reader(config, seeded, damag
     assert client.get("/").status_code == 200
     assert client.post("/aviso/alta", json=body()).status_code == 404
     assert client.get("/sw.js").status_code == 404
+
+
+def openings(engine, seeded):
+    with Session(engine) as s:
+        return s.get(Edition, seeded["edition"]).opened_at, s.get(Note, seeded["front"]).opened_at
+
+
+def test_a_real_navigation_records_the_first_opening(client, engine, seeded):
+    client.get("/")  # curl, a check, a test: no Sec-Fetch-Dest
+    assert openings(engine, seeded) == (None, None)
+
+    client.get("/", headers=NAV)
+    client.get(f"/n/{seeded['front']}", headers=NAV)
+    first = openings(engine, seeded)
+    client.get("/e/2026-10-10", headers=NAV)
+    client.get(f"/n/{seeded['front']}", headers=NAV)
+
+    assert None not in first and openings(engine, seeded) == first
+    with Session(engine) as s:
+        assert s.get(Note, seeded["front"]).is_read is False  # opening is not reading
+
+
+def test_a_locked_database_never_breaks_the_page(client, seeded, monkeypatch):
+    def locked(self, *args, **kwargs):
+        raise OperationalError("UPDATE", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(Engine, "begin", locked)  # the opening's own transaction
+    assert client.get("/", headers=NAV).status_code == 200
+    assert client.get(f"/n/{seeded['front']}", headers=NAV).status_code == 200
+
+
+def test_the_latest_editions_pages_carry_its_date(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        s.add(Edition(edition_date=date(2026, 10, 9), status=EditionStatus.ready))
+    for path in ("/", "/e/2026-10-10", f"/n/{seeded['front']}", "/fin/2026-10-10"):
+        assert 'data-live="2026-10-10"' in client.get(path).text, path
+    assert "data-live=" not in client.get("/e/2026-10-09").text
+
+
+def test_the_notice_line_is_on_today_only(config, client, seeded):
+    key = notify.public_key(notify.load_key(notify.key_path(config)))
+    page = client.get("/").text
+    assert f'class="aviso" data-key="{key}"' in page and 'data-name="Newspaper"' in page
+    assert 'class="aviso"' not in client.get("/e/2026-10-10").text
+
+
+def test_the_notice_line_is_there_before_the_first_edition(client):
+    page = client.get("/").text
+    assert "Todavía no hay ediciones" in page and 'class="aviso"' in page

@@ -6,4 +6,5 @@
   <h1>Todavía no hay ediciones</h1>
   <p>La primera edición se prepara a la hora configurada, o puedes generarla ahora con <code>newspaper generate</code>.</p>
 </section>
+{% if notice_key %}<p class="aviso" data-key="{{ notice_key }}" data-name="{{ paper }}" hidden></p>{% endif %}
 {% endblock %}

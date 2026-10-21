@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
+from sqlalchemy import update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -21,7 +23,7 @@ from ..dates import long_date
 from ..edition.today import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article
+from ..storage.models import Article, Edition, Note, utcnow
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -81,8 +83,13 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
         banner = today_banner(today.status, today.error) if today else None
+        latest = queries.latest_ready_edition(s)
+        edition = context.get("edition")
         # The masthead's date follows the page's edition, else the latest.
-        paper_edition = context.get("edition") or queries.latest_ready_edition(s)
+        paper_edition = edition or latest
+        # The latest edition's pages carry its date: back in the app, app.js reloads Today when
+        # a newer one is out (the installed app resumes yesterday's page without asking).
+        live = edition is not None and latest is not None and edition.id == latest.id
         return templates.TemplateResponse(
             request,
             name,
@@ -91,9 +98,23 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "banner": banner,
                 "today_status": today.status.value if today else None,
                 "paper_edition": paper_edition,
+                "live_day": edition.edition_date if live else None,
                 **context,
             },
         )
+
+    def opened(model, obj_id: int, request: Request) -> None:
+        """The first opening of an edition or a note. Only real navigations count (not curl, a
+        check or the tests). Its own transaction: a locked database never breaks the page and
+        the request's session stays usable."""
+        if request.headers.get("sec-fetch-dest") != "document":
+            return
+        stmt = update(model).where(model.id == obj_id, model.opened_at.is_(None))
+        try:
+            with engine.begin() as conn:
+                conn.execute(stmt.values(opened_at=utcnow()))
+        except OperationalError:
+            log.warning("No se pudo guardar una apertura", exc_info=True)
 
     @app.exception_handler(StarletteHTTPException)
     def http_error(request: Request, exc: StarletteHTTPException) -> HTMLResponse:
@@ -115,25 +136,29 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         response.status_code = 422
         return response
 
-    def edition_page(request: Request, s: Session, edition) -> HTMLResponse:
+    def edition_page(request: Request, s: Session, edition, today: bool = False) -> HTMLResponse:
+        # The notice line lives on Today only, with or without an edition.
+        key = push[2] if today and push else None
         if edition is None:
-            return render(request, s, "empty.html", edition=None)
+            return render(request, s, "empty.html", edition=None, notice_key=key)
         core = queries.reading_order(edition.notes)[0]
         # Each band: its first note (the core's) big, the rest folded under "y N más".
         sections = []
         for name, _ in queries.section_counts(s, edition.id):
             first, *rest = queries.section_notes(s, edition.id, name)
             sections.append((name, first, rest))
-        return render(
+        response = render(
             request, s, "front.html", edition=edition, front=queries.front_page(s, edition.id),
             sections=sections, next_core=next((n for n in core if not n.is_read), None),
             core_read=sum(n.is_read for n in core), core_total=len(core),
-            core_minutes=sum(n.read_minutes for n in core),
+            core_minutes=sum(n.read_minutes for n in core), notice_key=key,
         )  # fmt: skip
+        opened(Edition, edition.id, request)
+        return response
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, s: DB):
-        return edition_page(request, s, queries.latest_ready_edition(s))
+        return edition_page(request, s, queries.latest_ready_edition(s), today=True)
 
     @app.get("/e/{day}", response_class=HTMLResponse)
     def edition(request: Request, s: DB, day: date):
@@ -174,13 +199,15 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         # the bands spread over the six stops of the ramp (--r0…--r5 in style.css).
         sections = [name for name, _ in queries.section_counts(s, found.edition.id)]
         band = 0 if found.is_front else sections.index(found.section) + 1
-        return render(
+        response = render(
             request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
             prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
             next_note=next_note, next_label=label(i + 1),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
             tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
         )  # fmt: skip
+        opened(Note, found.id, request)
+        return response
 
     @app.get("/fin/{day}", response_class=HTMLResponse)
     def end(request: Request, s: DB, day: date):
