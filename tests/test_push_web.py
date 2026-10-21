@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import false, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -121,6 +121,27 @@ def test_a_gone_subscription_says_so_and_gets_no_confirmation(client, engine, se
     response = client.post("/aviso/alta", json=body(confirm=True))
 
     assert response.json() == {"new": False, "gone": True} and sent == []
+
+
+def test_two_first_registrations_of_one_endpoint_never_fail(client, engine, monkeypatch):
+    client.post("/aviso/alta", json=body(mobile=False))  # the other request won the race
+    real = notify.Session
+
+    class Stale(real):  # ours looked for the endpoint before the other one wrote it
+        missed = False
+
+        def scalars(self, statement, *args, **kwargs):
+            if not Stale.missed:
+                Stale.missed = True
+                statement = statement.where(false())
+            return super().scalars(statement, *args, **kwargs)
+
+    monkeypatch.setattr(notify, "Session", Stale)
+
+    response = client.post("/aviso/alta", json=body(mobile=True))
+
+    assert response.status_code == 200 and response.json() == {"new": False, "gone": False}
+    assert [r.mobile for r in rows(engine)] == [True]
 
 
 def test_unsubscribing_is_idempotent(client, engine):

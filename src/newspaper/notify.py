@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -200,7 +201,11 @@ def send(
                 with Session(engine) as s, s.begin():
                     s.execute(
                         update(PushSubscription)
-                        .where(PushSubscription.id == sub.id)
+                        # The endpoint too: a rotation meanwhile keeps the id, not the endpoint.
+                        .where(
+                            PushSubscription.id == sub.id,
+                            PushSubscription.endpoint == sub.endpoint,
+                        )
                         .values(gone_at=utcnow())
                     )
                 log(f"Aviso no enviado a {host}: la suscripción ya no existe")
@@ -374,10 +379,14 @@ def upsert(engine: Engine, alta: Alta) -> tuple[bool, bool, int]:
             s.delete(old)
         elif old:
             row, old.endpoint, old.gone_at = old, sub.endpoint, None
-        new = row is None
-        if new:
-            row = PushSubscription(endpoint=sub.endpoint, mobile=bool(alta.mobile))
-            s.add(row)
+        new = False
+        if row is None:
+            # Two first registrations of one endpoint can race: the database decides who's new.
+            first = insert(PushSubscription).values(
+                endpoint=sub.endpoint, p256dh="", auth="", mobile=bool(alta.mobile)
+            )
+            new = s.execute(first.on_conflict_do_nothing(index_elements=["endpoint"])).rowcount == 1
+            row = find(sub.endpoint)
         row.p256dh, row.auth = sub.keys.p256dh, sub.keys.auth
         if alta.mobile is not None:
             row.mobile = alta.mobile

@@ -238,6 +238,22 @@ def test_gone_subscriptions_get_nothing(engine, tmp_path):
     assert sent.total == 0
 
 
+def test_a_late_410_never_marks_the_subscription_that_replaced_it(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    phone = subscribe(engine)
+
+    def rotating(request):  # the browser rotates (same row) while the old endpoint answers
+        with Session(engine) as s, s.begin():
+            s.get(PushSubscription, phone.id).endpoint = "https://fcm.googleapis.com/fcm/send/new"
+        return httpx.Response(410)
+
+    client = httpx.Client(transport=httpx.MockTransport(rotating))
+    notify.send(engine, vapid, EDITION, lambda _: None, http=client)
+
+    with Session(engine) as s:
+        assert s.get(PushSubscription, phone.id).gone_at is None
+
+
 def test_a_key_that_wont_encrypt_is_skipped_and_the_rest_still_go(engine, tmp_path):
     vapid = notify.ensure_key(tmp_path / "vapid.pem")
     bad = subscribe(engine, "https://fcm.googleapis.com/fcm/send/bad")
