@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from newspaper import notify
-from newspaper.storage.models import PushSubscription
+from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 
 
 def browser():
@@ -264,3 +264,181 @@ def test_the_payload_stays_in_one_record_even_in_4_byte_characters():
     assert len(payload) <= 3993  # RFC 8291 §4
     _, _, keys = browser()
     assert len(notify.encrypt(payload, keys["p256dh"], keys["auth"])) <= 4096  # one record
+
+
+DAY = date(2026, 10, 10)  # the seeded edition
+
+
+@pytest.fixture
+def push(config, engine, monkeypatch):
+    """A key, the phone subscribed and a fake `send` that records the messages."""
+    notify.ensure_key(notify.key_path(config))
+    subscribe(engine)
+    calls = SimpleNamespace(messages=[], result=notify.Sent(accepted=1, total=1), during=None)
+
+    def fake_send(engine_, vapid, message, log, only=None, http=None):
+        calls.messages.append(message)
+        if calls.during:
+            calls.during()
+        return calls.result
+
+    monkeypatch.setattr(notify, "send", fake_send)
+    return calls
+
+
+def set_edition(engine, day=DAY, **values):
+    with Session(engine) as s, s.begin():
+        edition = s.scalars(select(Edition).where(Edition.edition_date == day)).one()
+        for name, value in values.items():
+            setattr(edition, name, value)
+
+
+def marks(engine):
+    with Session(engine) as s:
+        e = s.scalars(select(Edition).where(Edition.edition_date == DAY)).one()
+        return e.notified_at, e.delivered_at, e.clicked_at
+
+
+def message_for(config, engine, day=DAY):
+    with Session(engine) as s:
+        edition = s.scalars(select(Edition).where(Edition.edition_date == day)).one()
+        return notify.edition_message(s, config, edition)
+
+
+def test_the_notice_names_the_core_and_its_first_headline(config, engine, seeded):
+    message = message_for(config, engine)
+    assert (message.kind, message.day) == ("edicion", DAY)
+    assert message.title == "Newspaper · 2 esenciales, 3 min"
+    assert message.body == "Senado aprueba reforma de pensiones"
+
+
+def test_one_essential_is_singular_and_work_titles_lose_their_asterisks(config, engine, seeded):
+    with Session(engine) as s, s.begin():
+        s.delete(s.get(Note, seeded["world"]))
+        s.get(Note, seeded["front"]).headline = "Estreno de *Hijas Únikas*"
+    message = message_for(config, engine)
+    assert message.title == "Newspaper · 1 esencial, 2 min"
+    assert message.body == "Estreno de Hijas Únikas"
+
+
+@pytest.mark.parametrize(
+    ("day", "body"),
+    [
+        (date(2026, 10, 11), "Sigue la de ayer: 2 esenciales, 3 min."),
+        (date(2026, 10, 13), "Sigue la del sábado 10 de octubre de 2026: 2 esenciales, 3 min."),
+    ],
+)
+def test_a_failed_edition_says_so_and_which_one_is_left(config, engine, seeded, day, body):
+    with Session(engine) as s, s.begin():
+        s.add(Edition(edition_date=day, status=EditionStatus.failed))
+    message = message_for(config, engine, day)
+    assert message.title == "Newspaper · Hoy no hubo edición nueva"
+    assert (message.body, message.day) == (body, day)
+
+
+def test_a_first_edition_that_fails_points_to_the_log(config, engine):
+    with Session(engine) as s, s.begin():
+        s.add(Edition(edition_date=DAY, status=EditionStatus.failed))
+    assert message_for(config, engine).body == "La causa quedó en el registro del PC."
+
+
+@pytest.mark.parametrize("status", [EditionStatus.ready, EditionStatus.generating])
+def test_nothing_to_say_without_a_core_or_while_generating(config, engine, status):
+    with Session(engine) as s, s.begin():
+        s.add(Edition(edition_date=DAY, status=status))
+    assert message_for(config, engine) is None
+
+
+def test_the_automatic_notice_goes_out_once(config, engine, seeded, push):
+    notify.edition_notice(config, DAY, lambda _: None)
+    notify.edition_notice(config, DAY, lambda _: None)  # a later fetch, a skipped generate
+    assert len(push.messages) == 1 and marks(engine)[0] is not None
+
+
+def test_an_opened_edition_is_not_notified_late(config, engine, seeded, push):
+    set_edition(engine, opened_at=datetime(2026, 10, 10, 9, 0))
+    notify.edition_notice(config, DAY, lambda _: None)
+    assert push.messages == []
+
+
+def test_no_subscriptions_no_claim(config, engine, seeded, push):
+    with Session(engine) as s, s.begin():
+        s.execute(update(PushSubscription).values(gone_at=datetime(2026, 10, 10)))
+    notify.edition_notice(config, DAY, lambda _: None)
+    assert push.messages == [] and marks(engine)[0] is None
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"notified_at": datetime(2026, 10, 10, 9, 0)},  # another process notified
+        {"opened_at": datetime(2026, 10, 10, 9, 0)},  # the reader opened it
+        {"status": EditionStatus.failed},  # it changed state
+    ],
+)
+def test_the_claim_loses_to_a_change_made_meanwhile(
+    config, engine, seeded, push, monkeypatch, change
+):
+    real = notify.edition_message
+
+    def racing(s, config_, edition):
+        message = real(s, config_, edition)
+        with engine.begin() as conn:  # between our read and our claim
+            conn.execute(update(Edition).where(Edition.id == edition.id).values(**change))
+        return message
+
+    monkeypatch.setattr(notify, "edition_message", racing)
+    notify.edition_notice(config, DAY, lambda _: None)
+    assert push.messages == []
+
+
+def test_nothing_accepted_releases_the_claim_for_the_next_fetch(config, engine, seeded, push):
+    push.result = notify.Sent(total=1)
+    notify.edition_notice(config, DAY, lambda _: None)
+    assert marks(engine)[0] is None
+
+
+def test_an_uncertain_answer_keeps_the_claim(config, engine, seeded, push):
+    push.result = notify.Sent(uncertain=1, total=1)
+    notify.edition_notice(config, DAY, lambda _: None)
+    assert marks(engine)[0] is not None
+
+
+def test_the_funnel_is_emptied_before_sending_so_a_fast_ping_survives(config, engine, seeded, push):
+    old, ping = datetime(2026, 10, 9, 9, 0), datetime(2026, 10, 10, 9, 21, 5)
+    set_edition(engine, delivered_at=old, clicked_at=old)
+    push.during = lambda: set_edition(engine, delivered_at=ping)  # the phone, mid-send
+
+    notify.edition_notice(config, DAY, lambda _: None)
+
+    notified, delivered, clicked = marks(engine)
+    assert notified is not None and delivered == ping and clicked is None
+
+
+def test_without_the_key_the_notice_waits_and_says_why(config, engine, seeded, push):
+    notify.key_path(config).unlink()
+    lines = []
+    notify.edition_notice(config, DAY, lines.append)
+    assert push.messages == [] and "vapid.pem" in lines[0]
+
+
+def test_resend_ignores_the_previous_notice(config, engine, seeded, push):
+    set_edition(engine, notified_at=datetime(2026, 10, 10, 9, 21))
+    assert notify.resend(config, DAY, lambda _: None) == "Aviso enviado a 1 de 1 suscripciones."
+    assert len(push.messages) == 1
+
+
+def test_resend_puts_the_previous_marks_back_when_nothing_goes_out(config, engine, seeded, push):
+    before = (datetime(2026, 10, 10, 9, 21), datetime(2026, 10, 10, 10, 10), None)
+    set_edition(engine, notified_at=before[0], delivered_at=before[1])
+    push.result = notify.Sent(total=1)
+
+    assert notify.resend(config, DAY, lambda _: None) == "Aviso enviado a 0 de 1 suscripciones."
+    assert marks(engine) == before
+
+
+def test_resend_explains_when_there_is_nothing_to_send(config, engine, seeded, push):
+    assert notify.resend(config, date(2026, 10, 11), print) == "Todavía no hay edición de hoy."
+    with Session(engine) as s, s.begin():
+        s.execute(update(PushSubscription).values(gone_at=datetime(2026, 10, 10)))
+    assert notify.resend(config, DAY, print) == "No hay suscripciones: actívalas al pie de Hoy."

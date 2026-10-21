@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,12 +22,15 @@ import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from .config.models import NewspaperConfig
-from .storage.models import PushSubscription, utcnow
+from .dates import long_date
+from .storage import queries
+from .storage.database import open_db
+from .storage.models import Edition, EditionStatus, PushSubscription, utcnow
 
 KEY_FILE = "vapid.pem"
 # RFC 8292's contact claim. It names nobody on purpose: a repo URL would tie the author's
@@ -203,3 +206,107 @@ def send(
             else:
                 log(f"Aviso no enviado a {host}: HTTP {response.status_code}")
     return sent
+
+
+def _essentials(core: list) -> str:
+    n = len(core)
+    return f"{n} {'esencial' if n == 1 else 'esenciales'}, {sum(x.read_minutes for x in core)} min"
+
+
+def edition_message(s: Session, config: NewspaperConfig, edition: Edition) -> Message | None:
+    """The notice for this edition's state, or None when there is nothing to say."""
+    name = config.general.edition_name
+    if edition.status == EditionStatus.ready:
+        core, _ = queries.reading_order(edition.notes)
+        if not core:
+            return None
+        headline = core[0].headline.replace("*", "")  # *work titles* are italics on the web only
+        return Message("edicion", f"{name} · {_essentials(core)}", headline, edition.edition_date)
+    if edition.status == EditionStatus.failed:
+        latest = queries.latest_ready_edition(s)
+        if latest is None:
+            body = "La causa quedó en el registro del PC."
+        else:  # honest labels: "yesterday" only when it is
+            yesterday = latest.edition_date == edition.edition_date - timedelta(days=1)
+            which = "la de ayer" if yesterday else f"la del {long_date(latest.edition_date)}"
+            body = f"Sigue {which}: {_essentials(queries.reading_order(latest.notes)[0])}."
+        return Message("edicion", f"{name} · Hoy no hubo edición nueva", body, edition.edition_date)
+    return None
+
+
+def _live(s: Session) -> int:
+    live = select(func.count()).select_from(PushSubscription)
+    return s.scalar(live.where(PushSubscription.gone_at.is_(None)))
+
+
+def _set(engine: Engine, edition_id: int, where: tuple = (), **values) -> int:
+    with engine.begin() as conn:
+        stmt = update(Edition).where(Edition.id == edition_id, *where).values(**values)
+        return conn.execute(stmt).rowcount
+
+
+def edition_notice(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> None:
+    """The automatic notice: at most one per edition, never for one already opened. Runs after
+    every `generate` and at the start of every `fetch` (decision 2026-10-21)."""
+    engine = open_db(config)
+    with Session(engine) as s:
+        edition = queries.today_edition(s, day)
+        if edition is None or edition.notified_at or edition.opened_at or not _live(s):
+            return
+        message = edition_message(s, config, edition)
+        if message is None:
+            if edition.status == EditionStatus.ready:
+                log("Aviso: la edición no tiene notas esenciales; no se avisa.")
+            return
+        edition_id, seen = edition.id, edition.status
+    vapid = load_key(key_path(config))
+    if vapid is None:
+        log(f"Aviso: falta {KEY_FILE}; abre la web una vez para crearla.")
+        return
+    now = utcnow()
+    # Claim before the first POST: of two processes arriving together only one sends; an
+    # opening or a new state meanwhile wins; and the funnel is emptied before a fast ping from
+    # this very notice can land. SQLite and the push service share no transaction: at most one
+    # notice, never exactly one.
+    unchanged = (
+        Edition.notified_at.is_(None),
+        Edition.opened_at.is_(None),
+        Edition.status == seen,
+    )
+    claim = {"notified_at": now, "delivered_at": None, "clicked_at": None}
+    if _set(engine, edition_id, unchanged, **claim) != 1:
+        return
+    sent = send(engine, vapid, message, log)
+    if not sent.accepted and not sent.uncertain:  # nothing went out: the next fetch tries again
+        _set(engine, edition_id, (Edition.notified_at == now,), notified_at=None)
+
+
+def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> str:
+    """`newspaper notify`: today's notice, now, whatever was sent before. If nothing goes out
+    the previous marks come back, so a failed test never makes `fetch` think the edition was
+    never notified, nor erases its funnel."""
+    engine = open_db(config)
+    with Session(engine) as s:
+        edition = queries.today_edition(s, day)
+        if edition is None:
+            return "Todavía no hay edición de hoy."
+        if not _live(s):
+            return "No hay suscripciones: actívalas al pie de Hoy."
+        message = edition_message(s, config, edition)
+        if message is None:
+            return "La edición de hoy no tiene nada que avisar todavía."
+        edition_id = edition.id
+        before = {
+            "notified_at": edition.notified_at,
+            "delivered_at": edition.delivered_at,
+            "clicked_at": edition.clicked_at,
+        }
+    vapid = load_key(key_path(config))
+    if vapid is None:
+        return f"Falta {KEY_FILE}: abre la web una vez para crearla."
+    _set(engine, edition_id, notified_at=utcnow(), delivered_at=None, clicked_at=None)
+    sent = send(engine, vapid, message, log)
+    if not sent.accepted and not sent.uncertain:
+        _set(engine, edition_id, **before)
+    text = f"Aviso enviado a {sent.accepted} de {sent.total} suscripciones."
+    return text + (f" {sent.uncertain} sin respuesta." if sent.uncertain else "")
