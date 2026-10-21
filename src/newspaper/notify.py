@@ -7,16 +7,27 @@ database and to httpx. Imported lazily: the readers start without it.
 from __future__ import annotations
 
 import base64
+import json
 import os
+import time
+from collections.abc import Callable
+from contextlib import nullcontext
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import http_ece
+import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
+from sqlalchemy import select, update
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 from .config.models import NewspaperConfig
+from .storage.models import PushSubscription, utcnow
 
 KEY_FILE = "vapid.pem"
 # RFC 8292's contact claim. It names nobody on purpose: a repo URL would tie the author's
@@ -103,3 +114,92 @@ def vapid_headers(vapid: Vapid02, endpoint: str, now: int) -> dict[str, str]:
     parts = urlsplit(endpoint)
     audience = f"https://{parts.hostname}" + (f":{parts.port}" if parts.port else "")
     return vapid.sign({"aud": audience, "exp": now + TTL, "sub": CONTACT})
+
+
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _why(error: Exception) -> str:
+    return str(error) or type(error).__name__
+
+
+@dataclass
+class Message:
+    kind: str  # "edicion": the day's notice; "confirmacion": the test sent when activating
+    title: str
+    body: str
+    day: date | None = None
+
+    def payload(self, sid: int) -> bytes:
+        # Cut so the JSON stays far below one aes128gcm record (3993 bytes, RFC 8291 §4), even
+        # in 4-byte characters.
+        data = {"kind": self.kind, "title": _cut(self.title, 80), "body": _cut(self.body, 200)}
+        if self.kind == "edicion":  # the service worker pings back with these
+            data |= {"day": self.day.isoformat(), "sid": sid}
+        return json.dumps(data, ensure_ascii=False).encode()
+
+
+@dataclass
+class Sent:
+    accepted: int = 0
+    uncertain: int = 0  # reached the push service but the answer was lost: maybe delivered
+    total: int = 0
+
+
+def send(
+    engine: Engine,
+    vapid: Vapid02,
+    message: Message,
+    log: Callable[[str], None],
+    only: int | None = None,
+    http: httpx.Client | None = None,
+) -> Sent:
+    """Encrypt, sign and POST the message to every live subscription (or just `only`)."""
+    with Session(engine) as s:
+        stmt = select(PushSubscription).where(PushSubscription.gone_at.is_(None))
+        if only is not None:
+            stmt = stmt.where(PushSubscription.id == only)
+        subscriptions = list(s.scalars(stmt.order_by(PushSubscription.id)))
+    sent = Sent(total=len(subscriptions))
+    # No redirects: the endpoint was checked against the known push services, its target wasn't.
+    client = nullcontext(http) if http else httpx.Client(timeout=10, follow_redirects=False)
+    with client as client:
+        for sub in subscriptions:
+            host = urlsplit(sub.endpoint).hostname
+            try:
+                body = encrypt(message.payload(sub.id), sub.p256dh, sub.auth)
+                headers = vapid_headers(vapid, sub.endpoint, int(time.time())) | {
+                    "TTL": str(TTL),
+                    "Urgency": "normal",
+                    "Content-Encoding": "aes128gcm",
+                    "Content-Type": "application/octet-stream",
+                }
+                if message.kind == "edicion":
+                    # The push service replaces a pending message of the same topic with the
+                    # newer one (RFC 8030 §5.4); never on the test, or it could eat the notice.
+                    headers["Topic"] = "edicion"
+                response = client.post(sub.endpoint, content=body, headers=headers)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:  # never reached the service
+                log(f"Aviso no enviado a {host}: {_why(e)}")
+                continue
+            except httpx.HTTPError as e:  # reached it and lost the answer: don't send it twice
+                log(f"Aviso incierto a {host}: {_why(e)}")
+                sent.uncertain += 1
+                continue
+            except Exception as e:  # a key that won't encrypt or sign: nothing left the PC
+                log(f"Aviso no enviado a {host}: {_why(e)}")
+                continue
+            if response.is_success:
+                sent.accepted += 1
+            elif response.status_code in (404, 410):  # gone for good: Today renews it
+                with Session(engine) as s, s.begin():
+                    s.execute(
+                        update(PushSubscription)
+                        .where(PushSubscription.id == sub.id)
+                        .values(gone_at=utcnow())
+                    )
+                log(f"Aviso no enviado a {host}: la suscripción ya no existe")
+            else:
+                log(f"Aviso no enviado a {host}: HTTP {response.status_code}")
+    return sent

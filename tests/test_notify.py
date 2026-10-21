@@ -1,14 +1,20 @@
 import json
 import os
 import time
+from datetime import date, datetime
+from types import SimpleNamespace
 
 import http_ece
+import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid02
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from newspaper import notify
+from newspaper.storage.models import PushSubscription
 
 
 def browser():
@@ -124,3 +130,137 @@ def test_vapid_headers_sign_the_real_claims(tmp_path):
         "sub": notify.CONTACT,
     }
     assert Vapid02.verify(auth)
+
+
+EDITION = notify.Message("edicion", "Alba · 2 esenciales, 3 min", "Senado", date(2026, 10, 10))
+
+
+def subscribe(engine, endpoint="https://fcm.googleapis.com/fcm/send/phone", mobile=True):
+    key, auth, keys = browser()
+    with Session(engine) as s, s.begin():
+        row = PushSubscription(endpoint=endpoint, mobile=mobile, **keys)
+        s.add(row)
+        s.flush()
+        return SimpleNamespace(id=row.id, key=key, auth=auth, endpoint=endpoint)
+
+
+def service(*answers, seen=None):
+    """A push service that answers in order (a status code or an exception to raise)."""
+    replies = iter(answers)
+
+    def handler(request):
+        if seen is not None:
+            seen.append(request)
+        reply = next(replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(reply)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def decrypt(request, sub):
+    plain = http_ece.decrypt(
+        request.content, private_key=sub.key, auth_secret=sub.auth, version="aes128gcm"
+    )
+    return json.loads(plain)
+
+
+def test_send_posts_an_encrypted_signed_notice(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    phone = subscribe(engine)
+    seen = []
+
+    sent = notify.send(engine, vapid, EDITION, lambda _: None, http=service(201, seen=seen))
+
+    assert (sent.accepted, sent.uncertain, sent.total) == (1, 0, 1)
+    [request] = seen
+    assert str(request.url) == phone.endpoint
+    assert request.headers["TTL"] == "43200" and request.headers["Urgency"] == "normal"
+    assert request.headers["Topic"] == "edicion"
+    assert request.headers["Content-Encoding"] == "aes128gcm"
+    assert request.headers["Authorization"].startswith("vapid t=")
+    assert decrypt(request, phone) == {
+        "kind": "edicion",
+        "title": "Alba · 2 esenciales, 3 min",
+        "body": "Senado",
+        "day": "2026-10-10",
+        "sid": phone.id,
+    }
+
+
+def test_the_confirmation_goes_to_one_browser_without_day_sid_or_topic(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    subscribe(engine)
+    pc = subscribe(engine, "https://fcm.googleapis.com/fcm/send/pc", mobile=False)
+    seen = []
+    test = notify.Message("confirmacion", "Listo", "Te aviso cuando salga Alba.")
+
+    notify.send(engine, vapid, test, lambda _: None, only=pc.id, http=service(201, seen=seen))
+
+    [request] = seen
+    assert str(request.url) == pc.endpoint and "Topic" not in request.headers
+    assert decrypt(request, pc) == {
+        "kind": "confirmacion",
+        "title": "Listo",
+        "body": "Te aviso cuando salga Alba.",
+    }
+
+
+def test_send_sorts_every_answer_and_keeps_going(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    subs = [subscribe(engine, f"https://fcm.googleapis.com/fcm/send/{n}") for n in range(5)]
+    lines = []
+    answers = service(201, 410, 500, httpx.ConnectError("refused"), httpx.ReadTimeout("slow"))
+
+    sent = notify.send(engine, vapid, EDITION, lines.append, http=answers)
+
+    assert (sent.accepted, sent.uncertain, sent.total) == (1, 1, 5)
+    with Session(engine) as s:
+        gone = s.scalars(select(PushSubscription.id).where(PushSubscription.gone_at.is_not(None)))
+        assert list(gone) == [subs[1].id]
+    assert [line.split(":")[0] for line in lines] == [
+        "Aviso no enviado a fcm.googleapis.com",  # 410: gone
+        "Aviso no enviado a fcm.googleapis.com",  # 500
+        "Aviso no enviado a fcm.googleapis.com",  # never reached
+        "Aviso incierto a fcm.googleapis.com",  # reached, answer lost
+    ]
+
+
+def test_gone_subscriptions_get_nothing(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    subscribe(engine)
+    with Session(engine) as s, s.begin():
+        s.execute(update(PushSubscription).values(gone_at=datetime(2026, 10, 10)))
+
+    sent = notify.send(engine, vapid, EDITION, lambda _: None, http=service())
+
+    assert sent.total == 0
+
+
+def test_a_key_that_wont_encrypt_is_skipped_and_the_rest_still_go(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    bad = subscribe(engine, "https://fcm.googleapis.com/fcm/send/bad")
+    good = subscribe(engine)
+    with Session(engine) as s, s.begin():
+        s.get(PushSubscription, bad.id).p256dh = notify.b64(b"\x04" + bytes(64))
+    seen, lines = [], []
+
+    sent = notify.send(engine, vapid, EDITION, lines.append, http=service(201, seen=seen))
+
+    assert (sent.accepted, sent.total) == (1, 2)
+    assert [str(r.url) for r in seen] == [good.endpoint]
+    assert lines[0].startswith("Aviso no enviado a fcm.googleapis.com")
+
+
+def test_the_payload_stays_in_one_record_even_in_4_byte_characters():
+    message = notify.Message("edicion", "🌅" * 300, "📰" * 900, date(2026, 10, 10))
+
+    payload = message.payload(7)
+
+    data = json.loads(payload)
+    assert len(data["title"]) == 80 and data["title"].endswith("…")
+    assert len(data["body"]) == 200 and data["body"].endswith("…")
+    assert len(payload) <= 3993  # RFC 8291 §4
+    _, _, keys = browser()
+    assert len(notify.encrypt(payload, keys["p256dh"], keys["auth"])) <= 4096  # one record
