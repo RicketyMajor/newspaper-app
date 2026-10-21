@@ -199,11 +199,17 @@ function setUpNotices(line) {
     else show("", `Avisarme cuando salga ${name}`, on);
   }
 
-  // A new subscription; with `old`, the server updates that row in place (its id survives).
-  async function fresh(reg, old) {
+  // A new subscription, with `confirm` (activating) or `old` (renewing: the server updates that row
+  // in place, so its id survives).
+  async function fresh(reg, extra) {
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
-    const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, old });
-    if (!res.ok) throw new Error("alta");
+    const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, ...extra }).catch(() => null);
+    if (!res?.ok) {
+      // One the server never took would leave the line saying "Te aviso" with nothing to come
+      // (an unknown push service is refused for good): drop it, and the button stays.
+      await sub.unsubscribe();
+      throw new Error("alta");
+    }
     return sub;
   }
 
@@ -211,15 +217,7 @@ function setUpNotices(line) {
     try {
       const reg = await registration;
       if ((await Notification.requestPermission()) !== "granted") throw new Error("permiso");
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
-      const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, confirm: true })
-        .catch(() => null);
-      if (!res?.ok) {
-        // One the server never took would leave the line saying "Te aviso" with nothing to come
-        // (an unknown push service is refused for good): drop it, and the button stays.
-        await sub.unsubscribe();
-        throw new Error("alta");
-      }
+      await fresh(reg, { confirm: true });
       live.textContent = "Avisos activados.";
     } catch {
       live.textContent = "No se pudieron activar los avisos.";
@@ -247,12 +245,12 @@ function setUpNotices(line) {
     if (!sub || Notification.permission !== "granted") return;
     if (!sameKey(sub.options.applicationServerKey)) {
       await sub.unsubscribe();
-      return fresh(reg, sub.endpoint);
+      return fresh(reg, { old: sub.endpoint });
     }
     const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile });
     if (res.ok && (await res.json()).gone) {
       await sub.unsubscribe();  // same key: subscribe() alone would hand back this very one
-      await fresh(reg, sub.endpoint);
+      await fresh(reg, { old: sub.endpoint });
     }
   });
 
