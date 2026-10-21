@@ -57,3 +57,5 @@ prompt.md
 /DESIGN.md
 # playwright-cli session files
 .playwright-cli/
+# Web Push private key, next to the database (#17)
+vapid.pem
