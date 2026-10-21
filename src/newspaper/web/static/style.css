@@ -501,6 +501,21 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
   text-align: center;
 }
 
+/* The daily notice: one quiet line at the foot of Today, not a banner. */
+.aviso { max-width: var(--column); margin: 1.5rem auto 0; padding: 0 20px; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
+body.sky .aviso { padding-right: 52px; }  /* clear of the rail */
+.empty + .aviso { text-align: center; }  /* under the empty page's centered sun, like the colophon */
+.aviso button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 12.5px/1 var(--sans);
+  cursor: pointer;
+}
+
 /* Desktop: the same column, centered; the bar becomes a row of links under the masthead. */
 @media (min-width: 760px) {
   .top, main { max-width: var(--column); margin-inline: auto; }

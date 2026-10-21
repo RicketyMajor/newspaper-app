@@ -139,3 +139,139 @@ document.addEventListener("keydown", (event) => {
   } else return;
   event.preventDefault();
 });
+
+// The daily notice (#17): one line at the foot of Today. Chrome asks for permission only after a
+// tap. Activating, deactivating and the per-visit check take turns across the installed app and
+// any tab (they share one registration), and a deactivation always wins.
+const aviso = document.querySelector(".aviso[data-key]");
+if (aviso) setUpNotices(aviso);
+
+function setUpNotices(line) {
+  const { key, name } = line.dataset;
+  const unavailable = "Los avisos no están disponibles en este navegador.";
+  const supported = "serviceWorker" in navigator && "PushManager" in window &&
+    "Notification" in window && isSecureContext;
+  if (!supported) return show(unavailable);
+
+  // data-key is base64url without padding: atob accepts it once - and _ are back to + and /.
+  const keyBytes = Uint8Array.from(atob(key.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const mobile = navigator.userAgentData?.mobile ?? /Android|iPhone|iPad/.test(navigator.userAgent);
+  const locked = (fn) => (navigator.locks ? navigator.locks.request("alba-aviso", fn) : fn());
+  const post = (url, body) => fetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const sameKey = (buffer) => {
+    const bytes = new Uint8Array(buffer || []);
+    return bytes.length === keyBytes.length && bytes.every((b, i) => b === keyBytes[i]);
+  };
+  const registration = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+  // Every user awaits it and handles a failure; this keeps one nobody awaited yet (permission
+  // denied, a browser set to refuse workers) out of the console as an unhandled rejection.
+  registration.catch(() => {});
+
+  function show(text, label, action) {
+    // Each render replaces the button: a keyboard user on the old one lands on the new one.
+    const focused = line.contains(document.activeElement);
+    line.textContent = text;
+    line.hidden = false;
+    if (label) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", action);
+      line.append(text ? " " : "", button);
+      if (focused) button.focus();
+    }
+  }
+
+  // Never rejects: it ends every attempt and the page load, where nothing else would catch it.
+  async function render() {
+    if (Notification.permission === "denied") {
+      return show("Los avisos están bloqueados. Puedes activarlos en los ajustes de notificaciones de la app o del sitio.");
+    }
+    let sub;
+    try {
+      sub = await (await registration).pushManager.getSubscription();
+    } catch {
+      return show(unavailable);  // the worker never registered: nothing below can work
+    }
+    if (sub && Notification.permission === "granted") show(`Te aviso cuando salga ${name}.`, "Desactivar", off);
+    else show("", `Avisarme cuando salga ${name}`, on);
+  }
+
+  // A new subscription; with `old`, the server updates that row in place (its id survives).
+  async function fresh(reg, old) {
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
+    const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, old });
+    if (!res.ok) throw new Error("alta");
+    return sub;
+  }
+
+  const on = () => locked(async () => {
+    try {
+      const reg = await registration;
+      if ((await Notification.requestPermission()) !== "granted") throw new Error("permiso");
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
+      const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, confirm: true })
+        .catch(() => null);
+      if (!res?.ok) {
+        // One the server never took would leave the line saying "Te aviso" with nothing to come
+        // (an unknown push service is refused for good): drop it, and the button stays.
+        await sub.unsubscribe();
+        throw new Error("alta");
+      }
+      live.textContent = "Avisos activados.";
+    } catch {
+      live.textContent = "No se pudieron activar los avisos.";
+    }
+    await render();
+  });
+
+  const off = () => locked(async () => {
+    try {
+      const sub = await (await registration).pushManager.getSubscription();
+      // The browser first: if the server never hears, its next send gets 404/410 and marks it gone.
+      if (sub && (await sub.unsubscribe())) await post("/aviso/baja", { endpoint: sub.endpoint }).catch(() => {});
+      live.textContent = "Avisos desactivados.";
+    } catch {
+      live.textContent = "No se pudieron desactivar los avisos.";
+    }
+    await render();
+  });
+
+  // Each visit: the server learns the subscription again (a new or restored database). A dead
+  // endpoint (gone) or a regenerated key gets a fresh one; a plain "new" row is left alone.
+  const check = () => locked(async () => {
+    const reg = await registration;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub || Notification.permission !== "granted") return;
+    if (!sameKey(sub.options.applicationServerKey)) {
+      await sub.unsubscribe();
+      return fresh(reg, sub.endpoint);
+    }
+    const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile });
+    if (res.ok && (await res.json()).gone) {
+      await sub.unsubscribe();  // same key: subscribe() alone would hand back this very one
+      await fresh(reg, sub.endpoint);
+    }
+  });
+
+  render().then(check).catch(() => {}).finally(render);
+}
+
+// Back in the app: it resumes yesterday's page without asking for it. On the latest edition's
+// pages (data-live), a newer edition reloads Today, and a note offers it without interrupting.
+const liveDay = document.body.dataset.live;
+if (liveDay) {
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible") return;
+    const res = await fetch("/estado").catch(() => null);
+    if (!res || !res.ok) return;
+    const { latest } = await res.json();
+    // ISO dates (YYYY-MM-DD) compare as text. Later, not just different: a --force under way
+    // briefly says yesterday or null.
+    if (!latest || latest <= liveDay) return;
+    if (document.querySelector(".rail")) location.replace("/");  // a front page: Today itself
+    else document.querySelector(".banner.ready").hidden = false;
+  });
+}
