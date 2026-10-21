@@ -22,7 +22,8 @@ import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
-from sqlalchemy import func, select, update
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -312,3 +313,107 @@ def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> st
         _set(engine, edition_id, (Edition.notified_at == now,), **before)
     text = f"Aviso enviado a {sent.accepted} de {sent.total} suscripciones."
     return text + (f" {sent.uncertain} sin respuesta." if sent.uncertain else "")
+
+
+class Keys(BaseModel):
+    p256dh: str = Field(max_length=200)
+    auth: str = Field(max_length=100)
+
+    @field_validator("p256dh")
+    @classmethod
+    def _point(cls, value: str) -> str:
+        valid_p256dh(value)
+        return value
+
+    @field_validator("auth")
+    @classmethod
+    def _secret(cls, value: str) -> str:
+        if len(unb64(value)) != 16:
+            raise ValueError("auth: se esperan 16 bytes")
+        return value
+
+
+class Subscription(BaseModel):
+    endpoint: str = Field(max_length=2000)
+    keys: Keys
+
+    @field_validator("endpoint")
+    @classmethod
+    def _service(cls, value: str) -> str:
+        if not allowed_endpoint(value):
+            raise ValueError("endpoint: no es un servicio de push conocido")
+        return value
+
+
+class Alta(BaseModel):
+    subscription: Subscription
+    # Defaults make them optional: in pydantic 2 "| None" alone is still required.
+    mobile: bool | None = None
+    confirm: bool = False
+    old: str | None = Field(default=None, max_length=2000)
+
+
+class Baja(BaseModel):
+    endpoint: str = Field(max_length=2000)
+
+
+def upsert(engine: Engine, alta: Alta) -> tuple[bool, bool, int]:
+    """Save a browser's subscription: (new, gone, id). With `old` (a rotation or a renewal) the
+    old row is updated in place, so its id, the sid of notices already in the tray, and its
+    mobile flag survive."""
+    sub = alta.subscription
+    with Session(engine) as s, s.begin():
+
+        def find(endpoint):
+            stmt = select(PushSubscription).where(PushSubscription.endpoint == endpoint)
+            return s.scalars(stmt).first()
+
+        row = find(sub.endpoint)
+        old = find(alta.old) if alta.old and alta.old != sub.endpoint else None
+        if old and row:  # the new endpoint is known already: the old row goes
+            s.delete(old)
+        elif old:
+            row, old.endpoint, old.gone_at = old, sub.endpoint, None
+        new = row is None
+        if new:
+            row = PushSubscription(endpoint=sub.endpoint, mobile=bool(alta.mobile))
+            s.add(row)
+        row.p256dh, row.auth = sub.keys.p256dh, sub.keys.auth
+        if alta.mobile is not None:
+            row.mobile = alta.mobile
+        s.flush()
+        return new, row.gone_at is not None, row.id
+
+
+def remove(engine: Engine, endpoint: str) -> None:
+    with Session(engine) as s, s.begin():
+        s.execute(delete(PushSubscription).where(PushSubscription.endpoint == endpoint))
+
+
+def record_ping(engine: Engine, day: date, event: str, sid: int) -> bool:
+    """The worker's 'entregado' or 'tocado' for the edition of `day`, in any state. Only the
+    phone fills the funnel: the desktop, awake at 06:20, would always answer first. False when
+    there is no edition that day."""
+    column = {"entregado": Edition.delivered_at, "tocado": Edition.clicked_at}[event]
+    with engine.begin() as conn:
+        edition_id = conn.scalar(select(Edition.id).where(Edition.edition_date == day))
+        if edition_id is None:
+            return False
+        if conn.scalar(select(PushSubscription.mobile).where(PushSubscription.id == sid)):
+            stmt = update(Edition).where(Edition.id == edition_id, column.is_(None))
+            conn.execute(stmt.values({column: utcnow()}))
+    return True
+
+
+def service_worker(source: Path, static: Path, name: str) -> str:
+    """sw.js with the edition's name, icon and badge inlined: showing a notice fetches nothing
+    from the PC, which may be out of reach over the tailnet."""
+
+    def png(file: str) -> str:
+        return "data:image/png;base64," + base64.b64encode((static / file).read_bytes()).decode()
+
+    script = source.read_text(encoding="utf-8")
+    slots = {"__NAME__": name, "__ICON__": png("icon-192.png"), "__BADGE__": png("badge.png")}
+    for slot, value in slots.items():
+        script = script.replace(slot, json.dumps(value))
+    return script

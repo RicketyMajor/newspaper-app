@@ -1,5 +1,6 @@
 """Local web reader: FastAPI + Jinja2, server-rendered, no accounts."""
 
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Literal
@@ -8,7 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -24,6 +25,29 @@ from ..storage.models import Article
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
+log = logging.getLogger(__name__)
+
+
+def same_origin(request: Request) -> None:
+    """Another site's form or fetch (any page open in the phone or PC browser) must not change
+    anything here. same-site is not enough: it ignores the port. ponytail: no header passes (old
+    browsers and the tests); every current browser sends it."""
+    if request.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
+        raise HTTPException(403, "Ese cambio llegó desde otro sitio.")
+
+
+def _push(config: NewspaperConfig):
+    """The notices' key, created on the first start: (notify, key, public key). Any failure (a
+    missing dependency, a corrupt PEM, a filesystem without hard links) turns the notices off,
+    never the reader."""
+    try:
+        from .. import notify  # heavy (cryptography): imported after web.log is set up
+
+        vapid = notify.ensure_key(notify.key_path(config))
+        return notify, vapid, notify.public_key(vapid)
+    except Exception:
+        log.warning("Avisos desactivados: no se pudo preparar la clave", exc_info=True)
+        return None
 
 
 def create_app(config: NewspaperConfig) -> FastAPI:
@@ -52,6 +76,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             yield s
 
     DB = Annotated[Session, Depends(db)]  # noqa: N806 - type alias
+    push = _push(config)
 
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
@@ -194,11 +219,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
         value: bool | None = None,  # set it (app.js marks a finished note); without it, toggle
     ):
-        # Another site's form (any page open in the phone or PC browser) must not flip marks.
-        # same-site is not enough: it ignores the port. ponytail: no header passes (old browsers
-        # and the tests); every current browser sends it.
-        if request.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
-            raise HTTPException(403, "Ese cambio llegó desde otro sitio.")
+        same_origin(request)
         try:
             value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag, value)
         except LookupError as e:
@@ -267,6 +288,43 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             },
             media_type="application/manifest+json",
         )
+
+    if push:
+        notify, vapid, _ = push
+        worker = notify.service_worker(HERE / "sw.js", STATIC, config.general.edition_name)
+
+        @app.get("/sw.js")
+        def service_worker():
+            # Explicit type: Windows' registry can map .js to text/plain, and a service worker
+            # must be JavaScript.
+            headers = {"Cache-Control": "no-cache"}
+            return Response(worker, media_type="text/javascript", headers=headers)
+
+        @app.post("/aviso/alta")
+        def subscribe(request: Request, alta: notify.Alta):
+            same_origin(request)
+            new, gone, sid = notify.upsert(engine, alta)
+            if alta.confirm and not gone:
+                name = config.general.edition_name
+                test = notify.Message("confirmacion", "Listo", f"Te aviso cuando salga {name}.")
+                try:  # the subscription is saved already: a failed test is only logged
+                    notify.send(engine, vapid, test, log.warning, only=sid)
+                except Exception:
+                    log.warning("No se pudo enviar la confirmación", exc_info=True)
+            return {"new": new, "gone": gone}
+
+        @app.post("/aviso/baja")
+        def unsubscribe(request: Request, baja: notify.Baja):
+            same_origin(request)
+            notify.remove(engine, baja.endpoint)
+            return {"ok": True}
+
+        @app.post("/aviso/{day}/{event}", status_code=204)
+        def ping(request: Request, day: date, event: Literal["entregado", "tocado"], s: int):
+            same_origin(request)
+            if not notify.record_ping(engine, day, event, s):
+                raise HTTPException(404, "No hay edición para esa fecha")
+            return Response(status_code=204)
 
     return app
 
