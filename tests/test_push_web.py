@@ -224,6 +224,22 @@ def test_a_real_navigation_records_the_first_opening(client, engine, seeded):
         assert s.get(Note, seeded["front"]).is_read is False  # opening is not reading
 
 
+def test_only_the_first_opening_writes(client, seeded, monkeypatch):
+    client.get("/", headers=NAV)  # the edition's first opening
+    writes = []
+    real = Engine.begin
+
+    def counting(self, *args, **kwargs):
+        writes.append(1)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Engine, "begin", counting)
+    client.get("/", headers=NAV)  # a revisit: no write, so no wait for the writer lock
+    client.get(f"/n/{seeded['front']}", headers=NAV)  # the note's first opening: one write
+
+    assert len(writes) == 1
+
+
 def test_a_locked_database_never_breaks_the_page(client, seeded, monkeypatch):
     def locked(self, *args, **kwargs):
         raise OperationalError("UPDATE", {}, Exception("database is locked"))

@@ -16,6 +16,7 @@ from markdown_it import MarkdownIt
 from sqlalchemy import update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..config.models import NewspaperConfig
@@ -103,12 +104,16 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             },
         )
 
-    def opened(model, obj_id: int, request: Request) -> None:
-        """The first opening of an edition or a note. Only real navigations count (not curl, a
-        check or the tests). Its own transaction: a locked database never breaks the page and
-        the request's session stays usable."""
-        if request.headers.get("sec-fetch-dest") != "document":
-            return
+    def opened(response: HTMLResponse, model, obj, request: Request) -> HTMLResponse:
+        """Record the first opening of an edition or a note. Only real navigations count (not
+        curl, a check or the tests), and only the first: a revisit writes nothing. It runs after
+        the page is sent, so the writer lock (generate, fetch) never delays the page."""
+        if obj.opened_at is None and request.headers.get("sec-fetch-dest") == "document":
+            response.background = BackgroundTask(record_opening, model, obj.id)
+        return response
+
+    def record_opening(model, obj_id: int) -> None:
+        # Its own transaction: a locked database is only logged, never an error page.
         stmt = update(model).where(model.id == obj_id, model.opened_at.is_(None))
         try:
             with engine.begin() as conn:
@@ -153,8 +158,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             core_read=sum(n.is_read for n in core), core_total=len(core),
             core_minutes=sum(n.read_minutes for n in core), notice_key=key,
         )  # fmt: skip
-        opened(Edition, edition.id, request)
-        return response
+        return opened(response, Edition, edition, request)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, s: DB):
@@ -206,8 +210,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
             tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
         )  # fmt: skip
-        opened(Note, found.id, request)
-        return response
+        return opened(response, Note, found, request)
 
     @app.get("/fin/{day}", response_class=HTMLResponse)
     def end(request: Request, s: DB, day: date):
