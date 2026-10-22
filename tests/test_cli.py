@@ -223,10 +223,11 @@ def run_web(tmp_path, monkeypatch, uvicorn_run, *args):
             self.fn(*self.args)
 
     @contextmanager
-    def keep_awake():  # like the real one, it lets go when uvicorn raises
+    def keep_awake(needed):  # like the real one, it lets go when uvicorn raises
+        calls.needed, calls.recheck = needed, lambda: None
         calls.awake.append("on")
         try:
-            yield
+            yield calls.recheck
         finally:
             calls.awake.append("off")
 
@@ -247,15 +248,18 @@ def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monke
     seen = {}
 
     def uvicorn_run(app, **kwargs):
-        seen.update(kwargs)
+        seen.update(kwargs, app=app)
         logging.getLogger("uvicorn.error").error("Exception in ASGI application")
 
     result, calls = run_web(tmp_path, monkeypatch, uvicorn_run, "--no-browser")
 
     assert result.exit_code == 0, result.output
     # log_config=None: uvicorn's default calls sys.stdout.isatty(), and pythonw has no stdout.
+    app = seen.pop("app")
     assert seen == {"host": "127.0.0.1", "port": 8765, "log_config": None}
     assert (calls.recovered, calls.opened, calls.awake) == (1, [], ["on", "off"])
+    assert calls.needed is app.state.awake  # awake only after an edition or a visit
+    assert app.state.recheck is calls.recheck  # and a visit asks again at once
     log = (tmp_path / "data" / "web.log").read_text(encoding="utf-8")
     assert "uvicorn.error: Exception in ASGI application" in log
 

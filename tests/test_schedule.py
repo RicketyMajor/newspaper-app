@@ -73,6 +73,64 @@ def test_keep_awake_renews_the_request_that_sleep_drops(monkeypatch):
     assert held >= 3 and states[-1] == schedule.ES_CONTINUOUS
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_lets_go_while_nothing_needs_the_pc(monkeypatch):
+    # 2026-10-22: the web server kept the PC awake, unattended, from the 06:02 wake until noon.
+    import ctypes
+    import time
+
+    states = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=states.append)
+    )
+    monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
+    answers = iter([True, False, False, True])
+    with schedule.keep_awake(lambda: next(answers, False)):
+        time.sleep(0.1)
+    hold, free = schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED, schedule.ES_CONTINUOUS
+    assert states[:4] == [hold, free, free, hold]
+    assert states[-1] == free
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_rechecks_at_once_when_asked(monkeypatch):
+    # A visit just after letting go: Windows may sleep long before the next renewal.
+    import ctypes
+    import time
+
+    states = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=states.append)
+    )
+    hold, free = schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED, schedule.ES_CONTINUOUS
+    answers = iter([False, True])
+    with schedule.keep_awake(lambda: next(answers, True)) as recheck:  # renewal: 60 s
+        recheck()
+        for _ in range(100):
+            if len(states) == 2:
+                break
+            time.sleep(0.01)
+        assert states == [free, hold]
+    assert states[-1] == free
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_holds_when_it_cannot_tell(monkeypatch):
+    import ctypes
+
+    states = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=states.append)
+    )
+
+    def needed():
+        raise OSError("database is locked")
+
+    with schedule.keep_awake(needed):
+        assert states == [schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED]
+    assert states[-1] == schedule.ES_CONTINUOUS
+
+
 def test_keep_awake_does_nothing_off_windows(monkeypatch):
     monkeypatch.setattr(schedule.sys, "platform", "linux")
     with schedule.keep_awake():

@@ -1,12 +1,14 @@
 """Windows Task Scheduler integration (`newspaper schedule install|uninstall`) and keeping the
-PC awake while the edition is written or the web reader serves."""
+PC awake while the edition is written, and after it while someone may read."""
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 
 from .config.models import NewspaperConfig
@@ -92,7 +94,8 @@ def install_script(config: NewspaperConfig) -> str:
                     f"-Once -At '00:00' {every}",
                 ],
                 0,  # no time limit
-                "Sirve la web de Newspaper y mantiene el equipo despierto para leer desde el móvil",
+                "Sirve la web de Newspaper y mantiene el equipo despierto tras la edición y "
+                "mientras se lee desde el móvil",
             ),
             # The stopped server's python child lets go of the port a moment later, and a start
             # before that exits with 3. ponytail: up to 10 s; a manual server keeps it longer.
@@ -108,36 +111,48 @@ ES_SYSTEM_REQUIRED = 0x00000001
 # Windows drops the request when the PC sleeps and doesn't restore it on wake (seen 2026-10-18),
 # and after an unattended wake it sleeps again within ~2 min: renew well inside that.
 RENEW_SECONDS = 60
+# The web reader keeps the PC awake this long after an edition (the notice reaches the phone)
+# and after each visit (someone reading); then an unattended PC sleeps again (2026-10-22).
+# ponytail: constants; move them to the TOML if they need tuning.
+AWAKE_AFTER_EDITION = timedelta(minutes=30)
+AWAKE_AFTER_VISIT = timedelta(minutes=15)
 
 
 @contextmanager
-def keep_awake() -> Iterator[None]:
-    """Ask Windows not to sleep while the edition is written or the web reader serves (the task
-    may have woken the PC, and Windows puts it back to sleep unless asked)."""
+def keep_awake(needed: Callable[[], bool] = lambda: True) -> Iterator[Callable[[], None]]:
+    """Ask Windows not to sleep while the edition is written, or while the web reader has a
+    reason (`needed`, asked at every renewal): the task may have woken the PC, and Windows puts
+    it back to sleep unless asked. Yields `recheck`, which asks `needed` again right away."""
     if sys.platform != "win32":
-        yield
+        yield lambda: None
         return
     import ctypes
     import threading
 
     kernel32 = ctypes.windll.kernel32
-    held, done = threading.Event(), threading.Event()
+    held, recheck, done = threading.Event(), threading.Event(), threading.Event()
 
     def hold() -> None:  # the request belongs to this thread
-        while True:
-            kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        while not done.is_set():
+            recheck.clear()  # before asking: a recheck from now on is answered
+            try:
+                awake = needed()
+            except Exception:  # can't tell: stay awake, as before, rather than sleep on a reader
+                logging.getLogger(__name__).warning("keep_awake: retengo el PC", exc_info=True)
+                awake = True
+            kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if awake else 0))
             held.set()
-            if done.wait(RENEW_SECONDS):
-                break
+            recheck.wait(RENEW_SECONDS)
         kernel32.SetThreadExecutionState(ES_CONTINUOUS)
 
     thread = threading.Thread(target=hold, name="keep-awake", daemon=True)
     thread.start()
     held.wait()
     try:
-        yield
+        yield recheck.set
     finally:
         done.set()
+        recheck.set()
         thread.join()
 
 

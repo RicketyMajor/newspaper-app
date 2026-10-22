@@ -1,11 +1,14 @@
+import os
 import re
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from newspaper import schedule
 from newspaper.edition.today import local_today
-from newspaper.storage.models import Article, Edition, EditionStatus, Note
+from newspaper.storage.models import Article, Edition, EditionStatus, Note, utcnow
 from newspaper.web.app import create_app
 
 
@@ -276,6 +279,35 @@ def test_interest_label_on_cards_and_explained_on_the_note(client, engine, seede
     page = client.get(f"/n/{seeded['world']}").text
     assert "<strong>Menos interés:</strong>" in page
     assert "Te interesa" not in client.get(f"/n/{seeded['front']}").text
+
+
+def test_the_pc_stays_awake_only_after_an_edition_or_a_visit(config, engine):
+    # 2026-10-22: the PC stayed awake from the 06:02 wake until noon with nobody reading.
+    app = create_app(config)
+    rechecks = []
+    app.state.recheck = lambda: rechecks.append(1)
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+    assert not app.state.awake()  # no edition, no visit: Windows may sleep again
+    client.get("/estado")  # a tab left open polls it: nobody is reading
+    assert not app.state.awake() and not rechecks
+    client.get("/")
+    assert app.state.awake() and rechecks  # someone is reading: ask again now, not in a minute
+    app.state.visited -= schedule.AWAKE_AFTER_VISIT
+    assert not app.state.awake()
+
+    with Session(engine) as s, s.begin():
+        edition = Edition(edition_date=date(2026, 10, 22), pid=os.getpid())
+        s.add(edition)
+        s.flush()
+        edition_id = edition.id
+    assert app.state.awake()  # being written: held before `generate` lets go
+    with Session(engine) as s, s.begin():
+        edition = s.get(Edition, edition_id)
+        edition.status, edition.finished_at = EditionStatus.ready, utcnow() - timedelta(minutes=10)
+    assert app.state.awake()  # the notice just went out: room for the phone
+    with Session(engine) as s, s.begin():
+        s.get(Edition, edition_id).finished_at = utcnow() - timedelta(minutes=40)
+    assert not app.state.awake()
 
 
 def test_accepts_the_tailnet_name_behind_tailscale_serve(client):

@@ -1,7 +1,7 @@
 """Local web reader: FastAPI + Jinja2, server-rendered, no accounts."""
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -13,18 +13,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .. import schedule
 from ..config.models import NewspaperConfig
 from ..dates import long_date
-from ..edition.today import local_today, today_banner
+from ..edition.today import local_today, running, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, utcnow
+from ..storage.models import Article, Edition, EditionStatus, utcnow
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -56,6 +57,35 @@ def _push(config: NewspaperConfig):
 def create_app(config: NewspaperConfig) -> FastAPI:
     engine = open_db(config)
     app = FastAPI(title=config.general.edition_name, docs_url=None, redoc_url=None)
+
+    # `serve` keeps the PC awake while this says so, asked every minute and on each visit: after
+    # the 06:00 wake an unattended PC sleeps again once nobody needs it (2026-10-22).
+    app.state.visited, app.state.recheck = datetime.min, lambda: None
+
+    @app.middleware("http")  # inside TrustedHostMiddleware: a refused Host is no visit
+    async def visit(request: Request, call_next):
+        if request.url.path != "/estado":  # a tab left open polls it while today isn't ready
+            app.state.visited = utcnow()
+            app.state.recheck()  # now: the PC may be one breath from sleeping
+        return await call_next(request)
+
+    def awake() -> bool:
+        now = utcnow()
+        if now - app.state.visited < schedule.AWAKE_AFTER_VISIT:
+            return True
+        with Session(engine) as s:
+            # While it's written too, so the hold is already here when `generate` lets go.
+            # ponytail: a run shorter than one renewal goes unseen; after the 06:00 wake it ends
+            # inside Windows' 2-min unattended timeout, so the next check still catches it. A
+            # handoff from `generate` if unattended runs ever start mid-morning.
+            making = s.scalars(select(Edition).where(Edition.status == EditionStatus.generating))
+            if any(running(e) for e in making):
+                return True
+            # Any date: a run past midnight is still this morning's.
+            finished = s.scalar(select(func.max(Edition.finished_at)))
+        return finished is not None and now - finished < schedule.AWAKE_AFTER_EDITION
+
+    app.state.awake = awake
     # DNS rebinding: a foreign domain resolving to 127.0.0.1 must not read the reading history.
     # *.ts.net: the phone through `tailscale serve`; Tailscale owns that DNS, nobody can rebind it.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "*.ts.net"])
@@ -369,13 +399,13 @@ def serve(config: NewspaperConfig, port: int, open_browser: bool = True) -> None
 
     import uvicorn
 
-    from .. import schedule
-
     url = f"http://127.0.0.1:{port}/"
     if open_browser:
         threading.Timer(1.0, webbrowser.open, [url]).start()
     print(f"Newspaper en {url} (Ctrl+C para salir)")
-    # After the 06:00 wake Windows sleeps again unless asked; the phone needs it awake.
-    with schedule.keep_awake():
+    app = create_app(config)
+    # After the 06:00 wake Windows sleeps again unless asked: the phone needs it awake for the
+    # notice and while reading, not all day.
+    with schedule.keep_awake(app.state.awake) as app.state.recheck:
         # log_config=None: uvicorn's default calls sys.stdout.isatty(); pythonw has None.
-        uvicorn.run(create_app(config), host="127.0.0.1", port=port, log_config=None)
+        uvicorn.run(app, host="127.0.0.1", port=port, log_config=None)
