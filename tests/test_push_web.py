@@ -190,13 +190,19 @@ def test_the_service_worker_is_javascript_with_its_images_inlined(client):
     assert "__ICON__" not in response.text and '"Newspaper"' in response.text
 
 
-@pytest.mark.parametrize("damage", ["corrupt", "folder"])
-def test_a_broken_key_turns_the_notices_off_not_the_reader(config, seeded, damage):
+@pytest.mark.parametrize("damage", ["corrupt", "folder", "link"])
+def test_a_broken_key_turns_the_notices_off_not_the_reader(config, seeded, damage, monkeypatch):
     path = notify.key_path(config)
     if damage == "corrupt":
         path.write_bytes(b"no es una clave")
-    else:
+    elif damage == "folder":
         path.mkdir()
+    else:  # a filesystem without hard links, or one that refuses this one
+
+        def refuse(*args):
+            raise PermissionError("link")
+
+        monkeypatch.setattr(notify.os, "link", refuse)
     client = TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
     assert client.get("/").status_code == 200
@@ -222,6 +228,13 @@ def test_a_real_navigation_records_the_first_opening(client, engine, seeded):
     assert None not in first and openings(engine, seeded) == first
     with Session(engine) as s:
         assert s.get(Note, seeded["front"]).is_read is False  # opening is not reading
+
+
+def test_a_note_opened_directly_opens_its_edition(client, engine, seeded):
+    # From search or a bookmark, never through Today: the edition was opened all the same,
+    # so a pending notice must not go out late (the claim requires opened_at IS NULL).
+    client.get(f"/n/{seeded['front']}", headers=NAV)
+    assert None not in openings(engine, seeded)
 
 
 def test_only_the_first_opening_writes(client, seeded, monkeypatch):

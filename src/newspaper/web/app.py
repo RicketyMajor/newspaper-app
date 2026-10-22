@@ -24,7 +24,7 @@ from ..dates import long_date
 from ..edition.today import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, Edition, Note, utcnow
+from ..storage.models import Article, utcnow
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -104,20 +104,22 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             },
         )
 
-    def opened(response: HTMLResponse, model, obj, request: Request) -> HTMLResponse:
-        """Record the first opening of an edition or a note. Only real navigations count (not
+    def opened(response: HTMLResponse, request: Request, *objs) -> HTMLResponse:
+        """Record the first opening of editions and notes. Only real navigations count (not
         curl, a check or the tests), and only the first: a revisit writes nothing. It runs after
         the page is sent, so the writer lock (generate, fetch) never delays the page."""
-        if obj.opened_at is None and request.headers.get("sec-fetch-dest") == "document":
-            response.background = BackgroundTask(record_opening, model, obj.id)
+        firsts = [(type(obj), obj.id) for obj in objs if obj.opened_at is None]
+        if firsts and request.headers.get("sec-fetch-dest") == "document":
+            response.background = BackgroundTask(record_openings, firsts)
         return response
 
-    def record_opening(model, obj_id: int) -> None:
+    def record_openings(firsts: list[tuple[type, int]]) -> None:
         # Its own transaction: a locked database is only logged, never an error page.
-        stmt = update(model).where(model.id == obj_id, model.opened_at.is_(None))
         try:
             with engine.begin() as conn:
-                conn.execute(stmt.values(opened_at=utcnow()))
+                for model, obj_id in firsts:
+                    stmt = update(model).where(model.id == obj_id, model.opened_at.is_(None))
+                    conn.execute(stmt.values(opened_at=utcnow()))
         except OperationalError:
             log.warning("No se pudo guardar una apertura", exc_info=True)
 
@@ -158,7 +160,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             core_read=sum(n.is_read for n in core), core_total=len(core),
             core_minutes=sum(n.read_minutes for n in core), notice_key=key,
         )  # fmt: skip
-        return opened(response, Edition, edition, request)
+        return opened(response, request, edition)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, s: DB):
@@ -210,7 +212,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
             tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
         )  # fmt: skip
-        return opened(response, Note, found, request)
+        # Its edition too: a note reached from search or a bookmark opened it, never Today.
+        return opened(response, request, found, found.edition)
 
     @app.get("/fin/{day}", response_class=HTMLResponse)
     def end(request: Request, s: DB, day: date):

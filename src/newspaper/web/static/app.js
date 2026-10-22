@@ -170,7 +170,8 @@ function setUpNotices(line) {
   registration.catch(() => {});
 
   function show(text, label, action) {
-    // Each render replaces the button: a keyboard user on the old one lands on the new one.
+    // Each render replaces the button: a keyboard user on the old one lands on the new one, or
+    // on the line itself when no button is left (blocked), which also reads it out.
     const focused = line.contains(document.activeElement);
     line.textContent = text;
     line.hidden = false;
@@ -181,6 +182,9 @@ function setUpNotices(line) {
       button.addEventListener("click", action);
       line.append(text ? " " : "", button);
       if (focused) button.focus();
+    } else if (focused) {
+      line.tabIndex = -1;
+      line.focus();
     }
   }
 
@@ -195,7 +199,7 @@ function setUpNotices(line) {
     } catch {
       return show(unavailable);  // the worker never registered: nothing below can work
     }
-    if (sub && Notification.permission === "granted") show(`Te aviso cuando salga ${name}.`, "Desactivar", off);
+    if (sub && Notification.permission === "granted") show(`Te aviso cuando salga ${name}.`, "Desactivar avisos", off);
     else show("", `Avisarme cuando salga ${name}`, on);
   }
 
@@ -205,36 +209,41 @@ function setUpNotices(line) {
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
     const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile, ...extra }).catch(() => null);
     if (!res?.ok) {
-      // One the server never took would leave the line saying "Te aviso" with nothing to come
-      // (an unknown push service is refused for good): drop it, and the button stays.
-      await sub.unsubscribe();
+      // A refusal (4xx: an unknown push service, say) is for good, and so is any failure while
+      // activating, with the person right there to tap again: drop it, or the line would say
+      // "Te aviso" with nothing to come. A renewal that only met no network or a 5xx (the
+      // database busy with generate) keeps it: the next visit's check sends it again.
+      if (extra.confirm || (res && res.status < 500)) await sub.unsubscribe();
       throw new Error("alta");
     }
     return sub;
   }
 
+  // The announcement goes after the render: moving the focus to the new button would cut it off.
   const on = () => locked(async () => {
+    let said = "Avisos activados.";
     try {
       const reg = await registration;
       if ((await Notification.requestPermission()) !== "granted") throw new Error("permiso");
       await fresh(reg, { confirm: true });
-      live.textContent = "Avisos activados.";
     } catch {
-      live.textContent = "No se pudieron activar los avisos.";
+      said = "No se pudieron activar los avisos.";
     }
     await render();
+    live.textContent = said;
   });
 
   const off = () => locked(async () => {
+    let said = "Avisos desactivados.";
     try {
       const sub = await (await registration).pushManager.getSubscription();
       // The browser first: if the server never hears, its next send gets 404/410 and marks it gone.
       if (sub && (await sub.unsubscribe())) await post("/aviso/baja", { endpoint: sub.endpoint }).catch(() => {});
-      live.textContent = "Avisos desactivados.";
     } catch {
-      live.textContent = "No se pudieron desactivar los avisos.";
+      said = "No se pudieron desactivar los avisos.";
     }
     await render();
+    live.textContent = said;
   });
 
   // Each visit: the server learns the subscription again (a new or restored database). A dead
@@ -243,12 +252,11 @@ function setUpNotices(line) {
     const reg = await registration;
     const sub = await reg.pushManager.getSubscription();
     if (!sub || Notification.permission !== "granted") return;
-    if (!sameKey(sub.options.applicationServerKey)) {
-      await sub.unsubscribe();
-      return fresh(reg, { old: sub.endpoint });
-    }
-    const res = await post("/aviso/alta", { subscription: sub.toJSON(), mobile });
-    if (res.ok && (await res.json()).gone) {
+    // A regenerated key needs no POST to know; a dead endpoint, the server's answer.
+    const stale = !sameKey(sub.options.applicationServerKey) ||
+      (await post("/aviso/alta", { subscription: sub.toJSON(), mobile })
+        .then(async (res) => res.ok && (await res.json()).gone));
+    if (stale) {
       await sub.unsubscribe();  // same key: subscribe() alone would hand back this very one
       await fresh(reg, { old: sub.endpoint });
     }

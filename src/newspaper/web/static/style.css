@@ -477,8 +477,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
   details[open]::details-content { height: auto; }
 
   /* Toggles answer the press; the glyph pops in when it turns on. */
-  .toggles button, .filter a, .noon-wrap .cta a { transition: transform 0.12s; }
-  .toggles button:active, .filter a:active, .noon-wrap .cta a:active { transform: scale(0.96); }
+  .toggles button, .filter a, .noon-wrap .cta a, .aviso button { transition: transform 0.12s; }
+  .toggles button:active, .filter a:active, .noon-wrap .cta a:active, .aviso button:active { transform: scale(0.96); }
   .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
   .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
 }
