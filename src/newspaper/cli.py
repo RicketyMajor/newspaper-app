@@ -229,7 +229,7 @@ def install(ctx: click.Context) -> None:
         f"Tarea '{schedule.WEB_TASK_NAME}' lista y en marcha: la web en "
         f"http://127.0.0.1:{schedule.WEB_PORT}, "
         f"al iniciar sesión y revisada cada {schedule.FETCH_EVERY_MINUTES} minutos; mantiene el "
-        "equipo despierto."
+        "equipo despierto tras la edición y mientras lees."
     )
 
 
