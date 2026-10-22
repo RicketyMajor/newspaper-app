@@ -283,6 +283,8 @@ def edition_notice(config: NewspaperConfig, day: date, log: Callable[[str], None
     if _set(engine, edition_id, unchanged, **claim) != 1:
         return
     sent = send(engine, vapid, message, log)
+    # ponytail: one acceptance keeps the claim, so a phone that failed while the PC was accepted
+    # waits for `newspaper notify`; retrying per subscription needs a table of its own.
     if not sent.accepted and not sent.uncertain:  # nothing went out: the next fetch tries again
         _set(engine, edition_id, (Edition.notified_at == now,), notified_at=None)
 
