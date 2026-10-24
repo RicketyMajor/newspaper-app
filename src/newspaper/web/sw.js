@@ -131,13 +131,15 @@ async function guardar(aviso) {
     if (!manifest) return;
     lastSync = Date.now();
     const state = await getState();
-    if (state && state.edition === manifest.edition) await putState({ ...state, base: manifest.base });
-    if (state && state.revision === manifest.revision && (await caches.has(state.cache))) {
-      if (aviso && aviso.day === state.day) await ping(aviso, "guardada");
-      return;
-    }
     for (let round = 0; round < 2 && manifest; round++) {
       if (state && manifest.day < state.day) return;  // a --force under way: never back a day
+      if (state && state.edition === manifest.edition) await putState({ ...state, base: manifest.base });
+      // Checked every round: a change undone mid-download (A → B → A) brings back the copy we
+      // have, whose cache the next lines would otherwise delete.
+      if (state && state.revision === manifest.revision && (await caches.has(state.cache))) {
+        if (aviso && aviso.day === state.day) await ping(aviso, "guardada");
+        return;
+      }
       const name = "alba-" + manifest.revision;
       await caches.delete(name);
       const cache = await caches.open(name);
