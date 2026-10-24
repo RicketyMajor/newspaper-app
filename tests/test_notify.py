@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from newspaper import notify
 from newspaper.edition.today import notice_at
-from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
+from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription, utcnow
 
 
 def browser():
@@ -612,12 +612,48 @@ def test_the_notice_task_waits_for_an_edition_still_being_written(config, engine
     assert len(push.messages) == 1 and len(naps) == 1
 
 
+def clock_and_nap():
+    """A fake monotonic clock and a `sleep` that moves it."""
+    now = [0.0]
+    return (lambda: now[0]), (lambda seconds: now.__setitem__(0, now[0] + seconds)), now
+
+
 def test_the_notice_task_gives_up_after_nine_minutes(config, engine, seeded, push):
     push.result = notify.Sent(total=1)
-    naps, lines = [], []
-    notify.pending_notice(config, DAY, lines.append, sleep=naps.append)
-    assert len(push.messages) == notify.PENDING_TRIES == 27
-    assert sum(naps) == 26 * 20 and "9 minutos" in lines[-1]
+    clock, nap, _ = clock_and_nap()
+    lines = []
+    notify.pending_notice(config, DAY, lines.append, sleep=nap, clock=clock)
+    assert len(push.messages) == 27 and "9 minutos" in lines[-1]  # every 20 s, from 0 to 520
+
+
+def test_slow_sends_count_against_the_nine_minutes(config, engine, seeded, push):
+    # No network: each try waits 25 s for its timeouts. Windows ends the task at 10 min, maybe
+    # holding the claim, and then no fetch would ever retry: the last try must end before that.
+    push.result = notify.Sent(total=1)
+    clock, nap, now = clock_and_nap()
+    push.during = lambda: nap(25)
+    notify.pending_notice(config, DAY, lambda _: None, sleep=nap, clock=clock)
+    assert len(push.messages) == 12 and now[0] <= notify.PENDING_FOR
+
+
+def test_the_notice_task_waits_out_a_claim_still_being_sent(config, engine, seeded, push):
+    # A fetch claimed it a moment ago and found no network: the task is the one that retries.
+    set_edition(engine, notified_at=utcnow())
+    naps = []
+
+    def nap(seconds):
+        naps.append(seconds)
+        set_edition(engine, notified_at=None)  # the fetch's send failed: it let go
+
+    notify.pending_notice(config, DAY, lambda _: None, sleep=nap)
+    assert len(push.messages) == 1 and naps == [notify.PENDING_EVERY]
+
+
+def test_the_notice_task_leaves_a_settled_claim_alone(config, engine, seeded, push):
+    set_edition(engine, notified_at=utcnow() - notify.IN_FLIGHT)
+    naps = []
+    notify.pending_notice(config, DAY, lambda _: None, sleep=naps.append)
+    assert push.messages == [] and naps == []
 
 
 def test_the_notice_task_leaves_an_opened_edition_alone(config, engine, seeded, push):

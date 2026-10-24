@@ -269,31 +269,31 @@ def edition_notice(
     *,
     guard: bool = True,
     now: datetime | None = None,
-) -> None:
+) -> bool:
     """The automatic notice: at most one per edition, never for one already opened. Runs after
     every `generate` and at the start of every `fetch` (decision 2026-10-21), and with
     `guard=False` from the notice task (`notify --pendiente`): with notice_time set, the
-    others wait until it plus NOTICE_GRACE."""
+    others wait until it plus NOTICE_GRACE. True when this call's notice went out."""
     at = notice_at(config, now)
     if at:  # the edition's own day: one finished past midnight is late, never tomorrow's
         at = at.replace(year=day.year, month=day.month, day=day.day)
     if guard and at and (now or datetime.now(UTC)) < at + NOTICE_GRACE:
-        return
+        return False
     engine = open_db(config)
     with Session(engine) as s:
         edition = queries.today_edition(s, day)
         if edition is None or edition.notified_at or edition.opened_at or not _live(s):
-            return
+            return False
         message = edition_message(s, config, edition)
         if message is None:
             if edition.status == EditionStatus.ready:
                 log("Aviso: la edición no tiene notas esenciales; no se avisa.")
-            return
+            return False
         edition_id, seen = edition.id, edition.status
     vapid = load_key(key_path(config))
     if vapid is None:
         log(f"Aviso: falta {KEY_FILE}; abre la web una vez para crearla.")
-        return
+        return False
     now = utcnow()
     # Claim before the first POST: of two processes arriving together only one sends; an
     # opening or a new state meanwhile wins; and the funnel is emptied before a fast ping from
@@ -306,17 +306,23 @@ def edition_notice(
     )
     claim = {"notified_at": now, "delivered_at": None, "clicked_at": None, "cached_at": None}
     if _set(engine, edition_id, unchanged, **claim) != 1:
-        return
+        return False
     message.n = number(now)
     sent = send(engine, vapid, message, log)
     # ponytail: one acceptance keeps the claim, so a phone that failed while the PC was accepted
     # waits for `newspaper notify`; retrying per subscription needs a table of its own.
     if not sent.accepted and not sent.uncertain:  # nothing went out: the next fetch tries again
         _set(engine, edition_id, (Edition.notified_at == now,), notified_at=None)
+        return False
+    return True
 
 
 PENDING_EVERY = 20  # seconds between tries of the notice task
-PENDING_TRIES = 27  # 9 minutes, inside the task's 10-minute limit
+# 9 minutes, sends included: the task's 10-minute limit must never end it holding the claim,
+# which no fetch would retry.
+PENDING_FOR = 9 * 60
+# Another process's claim this young may still be sending, and may let go if it fails.
+IN_FLIGHT = timedelta(minutes=1)
 
 
 def notice_pending(config: NewspaperConfig, day: date) -> bool:
@@ -326,27 +332,32 @@ def notice_pending(config: NewspaperConfig, day: date) -> bool:
         return False
     with Session(open_db(config)) as s:
         edition = queries.today_edition(s, day)
-        if edition is None or edition.notified_at or edition.opened_at or not _live(s):
+        if edition is None or edition.opened_at or not _live(s):
             return False
+        if edition.notified_at:
+            return utcnow() - edition.notified_at < IN_FLIGHT
         if edition.status == EditionStatus.generating:
             return True
         return edition_message(s, config, edition) is not None
 
 
 def pending_notice(
-    config: NewspaperConfig, day: date, log: Callable[[str], None], sleep=time.sleep
+    config: NewspaperConfig,
+    day: date,
+    log: Callable[[str], None],
+    sleep=time.sleep,
+    clock=time.monotonic,
 ) -> None:
     """The notice task at notice_time (`notify --pendiente`): the automatic notice without the
     hour guard, tried again while it is still owed, whoever failed: the Wi-Fi comes back a few
     seconds after the wake, a fetch may have claimed it and found no network, the edition may
     still be finishing."""
-    for attempt in range(PENDING_TRIES):
-        if attempt:
-            sleep(PENDING_EVERY)
-        edition_notice(config, day, log, guard=False)
-        if not notice_pending(config, day):
+    start = clock()
+    while not edition_notice(config, day, log, guard=False) and notice_pending(config, day):
+        if clock() - start + PENDING_EVERY >= PENDING_FOR:
+            log("Aviso: no salió en 9 minutos; lo intentará el próximo fetch.")
             return
-    log("Aviso: no salió en 9 minutos; lo intentará el próximo fetch.")
+        sleep(PENDING_EVERY)
 
 
 def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> str:
