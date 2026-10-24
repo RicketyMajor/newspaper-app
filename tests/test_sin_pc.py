@@ -173,3 +173,6 @@ def test_a_busy_database_asks_the_worker_to_retry(client, seeded, monkeypatch):
     at = "at=2026-10-10T11:05:00Z"
     assert client.post(f"/n/{seeded['front']}/abierta?{at}", headers=SAME).status_code == 503
     assert client.post(f"/e/2026-10-10/abierta?{at}", headers=SAME).status_code == 503
+    monkeypatch.setattr("newspaper.storage.queries.search", busy)  # a page too: never a 500
+    page = client.get("/buscar?q=x")
+    assert page.status_code == 503 and "La base está ocupada; se reintentará." in page.text

@@ -14,12 +14,12 @@ def utcnow() -> datetime:
 
 
 def clamped(at: datetime | None, floor: datetime | None = None) -> datetime:
-    """A moment a device reported, as naive UTC like utcnow(): never in the future, never before
-    `floor`. None means now."""
+    """A moment a device reported, in UTC (the web's device_time), as naive UTC like utcnow():
+    never in the future, never before `floor`. None means now."""
     now = utcnow()
     if at is None:
         return now
-    moment = min(at.astimezone(UTC).replace(tzinfo=None), now)
+    moment = min(at.replace(tzinfo=None), now)
     return max(moment, floor) if floor else moment
 
 

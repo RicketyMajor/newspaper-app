@@ -201,19 +201,13 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         """A moment the phone's worker queued (#20a): ISO 8601 with its offset (or Z), in UTC."""
         if at is None:
             return None
-        try:
+        try:  # a naive time is refused; an offset at the calendar's edge (1, 9999) has no UTC
             moment = datetime.fromisoformat(at)
-        except ValueError:
-            raise HTTPException(422, "Hora no válida") from None
-        if moment.tzinfo is None:
-            raise HTTPException(422, "La hora debe traer su zona horaria")
-        try:  # an offset at the calendar's edge (year 1, 9999) has no UTC
+            if moment.tzinfo is None:
+                raise ValueError(at)
             return moment.astimezone(UTC)
-        except OverflowError:
-            raise HTTPException(422, "Hora no válida") from None
-
-    # A message, not a shared HTTPException: each raise of one instance grows its traceback.
-    busy = "La base está ocupada; se reintentará."
+        except (ValueError, OverflowError):
+            raise HTTPException(422, "Hora no válida: ISO 8601 con su zona horaria") from None
 
     def earliest_opening(s: Session, model, obj_id: int, when: datetime) -> None:
         stmt = update(model).where(
@@ -240,6 +234,13 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             )  # fmt: skip
         response.status_code = 422
         return response
+
+    @app.exception_handler(OperationalError)
+    def database_busy(request: Request, _exc: OperationalError) -> HTMLResponse:
+        # Locked past busy_timeout (generate, fetch): the worker retries a 503 it queued without
+        # the PC, and a page says so instead of a 500.
+        busy = StarletteHTTPException(503, "La base está ocupada; se reintentará.")
+        return http_error(request, busy)
 
     def edition_page(request: Request, s: Session, edition, today: bool = False) -> HTMLResponse:
         # The notice line lives on Today only, with or without an edition.
@@ -358,8 +359,6 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             s.commit()
         except LookupError as e:
             raise HTTPException(404, str(e)) from e
-        except OperationalError:  # the worker retries a source read queued without the PC
-            raise HTTPException(503, busy) from None
         if "application/json" in request.headers.get("accept", ""):  # app.js, no reload
             return {"value": value}
         back = urlsplit(request.headers.get("referer", "/"))
@@ -374,11 +373,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         found = queries.ready_edition(s, day)
         if found is None:
             raise HTTPException(404, "No hay edición para esa fecha")
-        try:
-            earliest_opening(s, Edition, found.id, clamped(moment, found.started_at))
-            s.commit()
-        except OperationalError:
-            raise HTTPException(503, busy) from None
+        earliest_opening(s, Edition, found.id, clamped(moment, found.started_at))
+        s.commit()
         return Response(status_code=204)
 
     @app.post("/n/{note_id}/abierta", status_code=204)
@@ -390,12 +386,9 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         if found is None:
             raise HTTPException(404, "Nota no encontrada")
         when = clamped(moment, found.edition.started_at)
-        try:
-            earliest_opening(s, Note, found.id, when)
-            earliest_opening(s, Edition, found.edition_id, when)
-            s.commit()
-        except OperationalError:
-            raise HTTPException(503, busy) from None
+        earliest_opening(s, Note, found.id, when)
+        earliest_opening(s, Edition, found.edition_id, when)
+        s.commit()
         return Response(status_code=204)
 
     @app.get("/archivo", response_class=HTMLResponse)
@@ -549,12 +542,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             at: str | None = None,
         ):
             same_origin(request)
-            moment = device_time(at)
-            try:
-                found = notify.record_ping(engine, day, event, s, n=n, at=moment)
-            except OperationalError:
-                raise HTTPException(503, busy) from None
-            if not found:
+            if not notify.record_ping(engine, day, event, s, n=n, at=device_time(at)):
                 raise HTTPException(404, "No hay edición para esa fecha")
             return Response(status_code=204)
 
