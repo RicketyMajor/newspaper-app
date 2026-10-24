@@ -412,8 +412,8 @@ def test_generate_and_fetch_wait_until_after_the_notice_time(config, engine, see
 
 
 def test_an_edition_done_past_midnight_is_held_to_its_own_day(config, engine, seeded, push):
-    # The 10th's edition at 23:00, notice at 23:55, done at 00:10 on the 11th: its time is past.
-    config.general.notice_time = "23:55"
+    # The 10th's edition at 22:00, notice at 22:50, done at 00:10 on the 11th: its time is past.
+    config.general.notice_time = "22:50"
     notify.edition_notice(config, DAY, print, now=datetime(2026, 10, 11, 3, 10, tzinfo=UTC))
     assert len(push.messages) == 1
 
