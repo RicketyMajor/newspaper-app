@@ -220,7 +220,9 @@ async function network(event, url) {
   let res = await event.preloadResponse;
   if (!res) {  // no preload yet (the first activation): this one won't count as an opening
     res = await fetch(event.request);
-    if (res.ok) later(event, abrir(url).then(enviar));
+    // ponytail: "/" is left out, since abrir() would credit it to the copy's day, maybe
+    // yesterday's: a rare first navigation around the activation loses Today's opening.
+    if (res.ok && url.pathname !== "/") later(event, abrir(url).then(enviar));
   }
   const html = (res.headers.get("content-type") || "").startsWith("text/html");
   if (res.type === "opaqueredirect" || !html) return res;
