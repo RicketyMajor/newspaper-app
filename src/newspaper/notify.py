@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from .config.models import NewspaperConfig
@@ -353,7 +354,12 @@ def pending_notice(
     seconds after the wake, a fetch may have claimed it and found no network, the edition may
     still be finishing."""
     start = clock()
-    while not edition_notice(config, day, log, guard=False) and notice_pending(config, day):
+    while True:
+        try:
+            if edition_notice(config, day, log, guard=False) or not notice_pending(config, day):
+                return
+        except OperationalError:  # locked past busy_timeout (a fetch at 07:30): try again
+            log("Aviso: base ocupada; reintento.")
         if clock() - start + PENDING_EVERY >= PENDING_FOR:
             log("Aviso: no salió en 9 minutos; lo intentará el próximo fetch.")
             return

@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid02
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from newspaper import notify
@@ -670,3 +671,30 @@ def test_the_notice_task_goes_without_the_hour_guard(config, monkeypatch):
     monkeypatch.setattr(notify, "notice_pending", lambda config_, day: False)
     notify.pending_notice(config, DAY, lambda _: None, sleep=lambda _: None)
     assert calls == [{"guard": False}]
+
+
+def locked(*args, **kwargs):
+    raise OperationalError("UPDATE", {}, Exception("database is locked"))
+
+
+def test_the_notice_task_waits_out_a_busy_database(config, engine, seeded, push, monkeypatch):
+    # A fetch writing at 07:30 holds the lock past busy_timeout: one more try, not exit 1.
+    real, tries = notify._set, []
+
+    def locked_once(*args, **kwargs):
+        tries.append(1)
+        return locked() if len(tries) == 1 else real(*args, **kwargs)
+
+    monkeypatch.setattr(notify, "_set", locked_once)  # the claim
+    lines, naps = [], []
+    notify.pending_notice(config, DAY, lines.append, sleep=naps.append)
+    assert len(push.messages) == 1 and naps == [notify.PENDING_EVERY]
+    assert lines == ["Aviso: base ocupada; reintento."]
+
+
+def test_a_database_busy_for_nine_minutes_still_ends_the_task(config, monkeypatch):
+    monkeypatch.setattr(notify, "edition_notice", locked)
+    clock, nap, _ = clock_and_nap()
+    lines = []
+    notify.pending_notice(config, DAY, lines.append, sleep=nap, clock=clock)
+    assert lines.count("Aviso: base ocupada; reintento.") == 27 and "9 minutos" in lines[-1]
