@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -28,7 +28,7 @@ from ..dates import long_date
 from ..edition.today import local_today, notice_at, running, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, Edition, EditionStatus, utcnow
+from ..storage.models import Article, Edition, EditionStatus, Note, clamped, utcnow
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -194,6 +194,30 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         except OperationalError:
             log.warning("No se pudo guardar una apertura", exc_info=True)
 
+    def device_time(at: str | None) -> datetime | None:
+        """A moment the phone's worker queued (#20a): ISO 8601 with its offset (or Z), in UTC."""
+        if at is None:
+            return None
+        try:
+            moment = datetime.fromisoformat(at)
+        except ValueError:
+            raise HTTPException(422, "Hora no válida") from None
+        if moment.tzinfo is None:
+            raise HTTPException(422, "La hora debe traer su zona horaria")
+        try:  # an offset at the calendar's edge (year 1, 9999) has no UTC
+            return moment.astimezone(UTC)
+        except OverflowError:
+            raise HTTPException(422, "Hora no válida") from None
+
+    # A message, not a shared HTTPException: each raise of one instance grows its traceback.
+    busy = "La base está ocupada; se reintentará."
+
+    def earliest_opening(s: Session, model, obj_id: int, when: datetime) -> None:
+        stmt = update(model).where(
+            model.id == obj_id, or_(model.opened_at.is_(None), model.opened_at > when)
+        )
+        s.execute(stmt.values(opened_at=when))
+
     @app.exception_handler(StarletteHTTPException)
     def http_error(request: Request, exc: StarletteHTTPException) -> HTMLResponse:
         message = "Esta página no existe." if exc.detail == "Not Found" else exc.detail
@@ -328,14 +352,48 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         same_origin(request)
         try:
             value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag, value)
+            s.commit()
         except LookupError as e:
             raise HTTPException(404, str(e)) from e
-        s.commit()
+        except OperationalError:  # the worker retries a source read queued without the PC
+            raise HTTPException(503, busy) from None
         if "application/json" in request.headers.get("accept", ""):  # app.js, no reload
             return {"value": value}
         back = urlsplit(request.headers.get("referer", "/"))
         anchor = f"#a-{obj_id}" if kind == "a" else ""  # without JS, land back on the source
         return RedirectResponse(back.path + (f"?{back.query}" if back.query else "") + anchor, 303)
+
+    @app.post("/e/{day}/abierta", status_code=204)
+    def edition_opened(request: Request, s: DB, day: date, at: str):
+        """An opening of Today made while the PC slept, with its real time (#20a)."""
+        same_origin(request)
+        moment = device_time(at)
+        found = queries.ready_edition(s, day)
+        if found is None:
+            raise HTTPException(404, "No hay edición para esa fecha")
+        try:
+            earliest_opening(s, Edition, found.id, clamped(moment, found.started_at))
+            s.commit()
+        except OperationalError:
+            raise HTTPException(503, busy) from None
+        return Response(status_code=204)
+
+    @app.post("/n/{note_id}/abierta", status_code=204)
+    def note_opened(request: Request, s: DB, note_id: int, at: str):
+        """A note opened while the PC slept, with its real time; it opens its edition too."""
+        same_origin(request)
+        moment = device_time(at)
+        found = queries.get_note(s, note_id)
+        if found is None:
+            raise HTTPException(404, "Nota no encontrada")
+        when = clamped(moment, found.edition.started_at)
+        try:
+            earliest_opening(s, Note, found.id, when)
+            earliest_opening(s, Edition, found.edition_id, when)
+            s.commit()
+        except OperationalError:
+            raise HTTPException(503, busy) from None
+        return Response(status_code=204)
 
     @app.get("/archivo", response_class=HTMLResponse)
     def archive(request: Request, s: DB):
@@ -475,9 +533,21 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             return {"ok": True}
 
         @app.post("/aviso/{day}/{event}", status_code=204)
-        def ping(request: Request, day: date, event: Literal["entregado", "tocado"], s: int):
+        def ping(
+            request: Request,
+            day: date,
+            event: Literal["entregado", "tocado", "guardada"],
+            s: int,
+            n: int | None = None,
+            at: str | None = None,
+        ):
             same_origin(request)
-            if not notify.record_ping(engine, day, event, s):
+            moment = device_time(at)
+            try:
+                found = notify.record_ping(engine, day, event, s, n=n, at=moment)
+            except OperationalError:
+                raise HTTPException(503, busy) from None
+            if not found:
                 raise HTTPException(404, "No hay edición para esa fecha")
             return Response(status_code=204)
 

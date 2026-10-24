@@ -1,12 +1,17 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from newspaper import notify
 from newspaper.edition.today import local_today
-from newspaper.storage.models import Edition, EditionStatus, Note
+from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 from newspaper.web.app import create_app
 
 PRELOAD = {"service-worker-navigation-preload": "true"}
+SAME = {"sec-fetch-site": "same-origin"}
 
 
 @pytest.fixture
@@ -81,3 +86,76 @@ def test_the_worker_is_served_even_without_notices(config, monkeypatch):
     response = client.get("/sw.js")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/javascript")
+
+
+def opened_at(engine, model, obj_id):
+    with Session(engine) as s:
+        return s.get(model, obj_id).opened_at
+
+
+def test_an_opening_without_the_pc_keeps_its_real_time(client, engine, seeded):
+    note = seeded["front"]
+    with Session(engine) as s, s.begin():  # seeded today: the floor would clamp the 10th up
+        s.get(Edition, seeded["edition"]).started_at = datetime(2026, 10, 10, 9, 0)
+    at = "2026-10-10T11:05:00.000Z"  # the worker's Date.toISOString()
+    assert client.post(f"/n/{note}/abierta?at={at}", headers=SAME).status_code == 204
+    assert opened_at(engine, Note, note) == datetime(2026, 10, 10, 11, 5)
+    assert opened_at(engine, Edition, seeded["edition"]) == datetime(2026, 10, 10, 11, 5)
+    client.post(f"/n/{note}/abierta?at=2026-10-10T12:00:00Z", headers=SAME)
+    assert opened_at(engine, Note, note) == datetime(2026, 10, 10, 11, 5)  # the earliest wins
+    client.post("/e/2026-10-10/abierta?at=2026-10-10T10:40:00%2B00:00", headers=SAME)
+    assert opened_at(engine, Edition, seeded["edition"]) == datetime(2026, 10, 10, 10, 40)
+
+
+def test_a_device_time_is_clamped_or_refused(client, engine, seeded):
+    note = seeded["front"]
+    future = (datetime.now(UTC) + timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    client.post(f"/n/{note}/abierta?at={future}", headers=SAME)
+    assert opened_at(engine, Note, note) <= datetime.now(UTC).replace(tzinfo=None)
+    assert client.post(f"/n/{note}/abierta?at=2026-10-10T11:05", headers=SAME).status_code == 422
+    assert client.post(f"/n/{note}/abierta?at=ayer", headers=SAME).status_code == 422
+    assert client.post(f"/n/999/abierta?at={future}", headers=SAME).status_code == 404
+    # An offset at the calendar's edge has no UTC: refused, never a 500.
+    for edge in ("0001-01-01T00:00%2B01:00", "9999-12-31T23:00-05:00"):
+        for path in (f"/n/{note}/abierta?at={edge}", f"/aviso/2026-10-10/tocado?s=1&at={edge}"):
+            assert client.post(path, headers=SAME).status_code == 422
+
+
+def test_openings_refuse_other_sites(client, seeded):
+    cross = {"sec-fetch-site": "cross-site"}
+    path = "/e/2026-10-10/abierta?at=2026-10-10T11:05:00Z"
+    assert client.post(path, headers=cross).status_code == 403
+
+
+def test_saved_pings_carry_their_number_and_time(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        phone = PushSubscription(
+            endpoint="https://fcm.googleapis.com/x", p256dh="k", auth="a", mobile=True
+        )
+        s.add(phone)
+        e = s.get(Edition, seeded["edition"])
+        e.notified_at = datetime(2026, 10, 10, 10, 30)
+        s.flush()
+        sid, n = phone.id, notify.number(e.notified_at)
+    path = f"/aviso/2026-10-10/guardada?s={sid}&n={n}&at=2026-10-10T10:31:00Z"
+    assert client.post(path, headers=SAME).status_code == 204
+    older = f"/aviso/2026-10-10/tocado?s={sid}&n={n - 1}"
+    assert client.post(older, headers=SAME).status_code == 204
+    with Session(engine) as s:
+        assert s.get(Edition, seeded["edition"]).cached_at == datetime(2026, 10, 10, 10, 31)
+        assert s.get(Edition, seeded["edition"]).clicked_at is None  # an older notice's tap
+
+
+def test_a_busy_database_asks_the_worker_to_retry(client, seeded, monkeypatch):
+    def busy(*args, **kwargs):
+        raise OperationalError("UPDATE", {}, Exception("database is locked"))
+
+    monkeypatch.setattr("newspaper.notify.record_ping", busy)
+    assert client.post("/aviso/2026-10-10/tocado?s=1", headers=SAME).status_code == 503
+    monkeypatch.setattr("newspaper.storage.queries.set_flag", busy)
+    path = f"/a/{seeded['articles'][0]}/estado?flag=read&value=true"
+    assert client.post(path, headers=SAME).status_code == 503
+    monkeypatch.setattr(Session, "commit", busy)  # the openings write in the request's session
+    at = "at=2026-10-10T11:05:00Z"
+    assert client.post(f"/n/{seeded['front']}/abierta?{at}", headers=SAME).status_code == 503
+    assert client.post(f"/e/2026-10-10/abierta?{at}", headers=SAME).status_code == 503
