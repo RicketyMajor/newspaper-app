@@ -154,9 +154,9 @@ def answering(values):
     return answer
 
 
-def hold_and_sleep(monkeypatch, needed, wakes, sleep=None):
-    """keep_awake with a recording `sleep`: what `needed` and LastWakeTime answer in turn; the
-    requests and the sleeps, in order."""
+def hold_and_sleep(monkeypatch, needed, wakes, sleep=None, inputs=((0, 0),)):
+    """keep_awake with a recording `sleep`: what `needed`, LastWakeTime and the last input
+    (tick, input32) answer in turn; the requests and the sleeps, in order."""
     import ctypes
     import time
 
@@ -166,8 +166,9 @@ def hold_and_sleep(monkeypatch, needed, wakes, sleep=None):
     )
     monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
     monkeypatch.setattr(schedule, "last_wake", answering(wakes))
+    monkeypatch.setattr(schedule, "_input_tick", answering(inputs))
 
-    def record(wake, fresh, still_needed, visited):
+    def record(wake, fresh, used, still_needed, visited):
         events.append(("sleep", wake, fresh, still_needed()))
 
     with schedule.keep_awake(answering(needed), sleep=sleep or record):
@@ -194,10 +195,11 @@ def test_a_visit_while_deciding_is_seen_right_before_sleeping(monkeypatch):
         ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=lambda state: None)
     )
     monkeypatch.setattr(schedule, "last_wake", lambda: 5)
+    monkeypatch.setattr(schedule, "_input_tick", lambda: (0, 0))
     seen, decided = [], threading.Event()
     answers = answering([False, True, False])
 
-    def sleep(wake, fresh, still_needed, visited):
+    def sleep(wake, fresh, used, still_needed, visited):
         seen.append(visited())
         recheck()  # the visit middleware, mid-decision
         seen.append(visited())
@@ -253,7 +255,7 @@ def test_an_unknown_wake_only_turns_off_the_sleeping(monkeypatch):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
 def test_a_failed_sleep_keeps_renewing(monkeypatch):
-    def sleep(wake, fresh, still_needed, visited):
+    def sleep(wake, fresh, used, still_needed, visited):
         raise OSError("SetSuspendState")
 
     events = hold_and_sleep(monkeypatch, [True, False, True], [5], sleep=sleep)
@@ -261,6 +263,59 @@ def test_a_failed_sleep_keeps_renewing(monkeypatch):
 
 
 WOKE = 1_000_000 * 10_000  # 1000 s after boot, in LastWakeTime's 100 ns units
+LATER = 1_500_000 * 10_000  # the next wake, 500 s on
+
+
+def used_at_sleeps(monkeypatch, inputs, wakes=(WOKE,), needed=(True, True, True, False)):
+    """What keep_awake tells each `sleep` about use, for these last inputs (tick, input32)."""
+    told = []
+
+    def sleep(wake, fresh, used, still_needed, visited):
+        told.append((wake, used))
+
+    hold_and_sleep(monkeypatch, list(needed), list(wakes), sleep=sleep, inputs=inputs)
+    return told
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_inputs_minutes_apart_after_the_first_minutes_are_someone_using_the_pc(monkeypatch):
+    # +200 s, then +290 s: a person comes back to the keyboard; a phantom is one burst.
+    inputs = [(1_300_000, 1_200_000), (1_400_000, 1_290_000)]
+    assert used_at_sleeps(monkeypatch, inputs) == [(WOKE, True)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_one_burst_is_no_use(monkeypatch):
+    inputs = [(1_300_000, 1_200_000), (1_400_000, 1_230_000)]  # +200 s, +230 s
+    assert used_at_sleeps(monkeypatch, inputs) == [(WOKE, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_inputs_of_the_first_minutes_are_no_use(monkeypatch):
+    inputs = [(1_300_000, 1_020_000), (1_400_000, 1_170_000)]  # +20 s, +170 s: the phantoms
+    assert used_at_sleeps(monkeypatch, inputs) == [(WOKE, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_wake_it_cannot_read_keeps_the_use_seen(monkeypatch):
+    inputs = [(1_300_000, 1_200_000), (1_400_000, 1_290_000)]
+    wakes = (WOKE, WOKE, OSError("CallNtPowerInformation"), WOKE)
+    told = used_at_sleeps(monkeypatch, inputs, wakes=wakes, needed=(True,) * 4 + (False,))
+    assert told == [(WOKE, True)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_new_wake_starts_with_no_use(monkeypatch):
+    # Used in the first wake; slept by hand; the next wake has only its +50 s phantom.
+    inputs = [(1_300_000, 1_200_000), (1_400_000, 1_290_000), (1_600_000, 1_550_000)]
+    told = used_at_sleeps(monkeypatch, inputs, wakes=(WOKE, WOKE, LATER))
+    assert told == [(LATER, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_an_input_it_cannot_read_counts_as_use(monkeypatch):
+    told = used_at_sleeps(monkeypatch, [OSError("GetLastInputInfo")], needed=(True, False))
+    assert told == [(WOKE, True)]  # any doubt keeps the PC awake: only #22's rule is left
 
 
 def test_input_after_wake_counts_from_the_last_wake():
@@ -331,8 +386,8 @@ def sleep_if_unattended(
         return visited
 
     now = kw.get("now", AFTER_WAKE)
-    fresh = kw.get("fresh", True)
-    schedule.sleep_if_unattended(SIX, WOKE, fresh, still_needed, was_visited, lambda: now)
+    fresh, used = kw.get("fresh", True), kw.get("used", False)
+    schedule.sleep_if_unattended(SIX, WOKE, fresh, used, still_needed, was_visited, lambda: now)
     assert order[0] == "needed"  # the slow question first: the snapshot is the last thing read
     assert not slept or order[-1] == "visited"  # and a visit, right before sleeping
     return bool(slept)
@@ -360,6 +415,56 @@ def test_our_wake_sleeps_even_with_a_hold_already_there(monkeypatch, caplog):
     assert "despertó 06:02:32 (programado), última entrada +67 s (margen 180 s)" in caplog.text
 
 
+DECIDED = datetime(2026, 10, 24, 6, 48, 25)  # 2026-10-24: woke 06:01:26, decided 06:48:25
+SINCE = 2_819_000  # ms from that wake to the decision
+
+
+def on_the_24th(monkeypatch, caplog, input_after_ms, **kw):
+    """That morning's decision with the last input at `input_after_ms` after the wake."""
+    snapshot = (1_000_000 + SINCE, 1_000_000 + input_after_ms, WOKE)
+    return sleep_if_unattended(monkeypatch, caplog, snapshot, now=DECIDED, **kw)
+
+
+def test_our_wake_sleeps_when_nobody_touched_the_pc_for_a_while(monkeypatch, caplog):
+    # The phantom at 06:08:28 (+422 s), 40 min before the decision, and no use since the wake.
+    assert on_the_24th(monkeypatch, caplog, 422_000)
+    assert (
+        "despertó 06:01:26 (programado), última entrada +422 s (margen 180 s), "
+        "hace 2397 s (umbral 1200 s), estado 0x80000001: lo duermo" in caplog.text
+    )
+
+
+def test_someone_who_used_the_pc_keeps_it_awake_however_long_ago(monkeypatch, caplog):
+    assert not on_the_24th(monkeypatch, caplog, 422_000, used=True)
+    assert "hace 2397 s (umbral 1200 s, con uso), estado 0x80000001: hay alguien" in caplog.text
+
+
+def test_away_starts_at_twenty_minutes(monkeypatch, caplog):
+    assert not on_the_24th(monkeypatch, caplog, SINCE - 1_199_000)  # 19:59 ago: maybe reading
+    assert on_the_24th(monkeypatch, caplog, SINCE - 1_200_000)
+
+
+def test_an_input_stamped_after_the_tick_is_someone_now(monkeypatch, caplog):
+    # SendInput brings its own time: it reads as now, never as 49.7 days of idling.
+    assert not on_the_24th(monkeypatch, caplog, SINCE + 1_000)
+    assert "hace 0 s (umbral 1200 s)" in caplog.text
+
+
+@pytest.mark.parametrize("used", [False, True])
+def test_our_wake_still_forgives_its_first_minutes(monkeypatch, caplog, used):
+    # #22's rule stands alone: a hold that ends 2 min after a 06:09 wake, outside the job's window.
+    snapshot = (1_000_000 + 120_000, 1_001_000, WOKE)
+    now = datetime(2026, 10, 24, 6, 11)
+    assert sleep_if_unattended(monkeypatch, caplog, snapshot, now=now, used=used)
+
+
+def test_twenty_minutes_away_is_only_for_our_wakes(monkeypatch, caplog):
+    # The user's wake: input at +60 s, an hour ago, is still someone (Sleep: Never is theirs).
+    snapshot = (1_000_000 + 3_660_000, 1_060_000, WOKE)
+    assert not sleep_if_unattended(monkeypatch, caplog, snapshot)
+    assert "última entrada +60 s (margen 15 s), estado 0x80000001: hay alguien" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("snapshot", "kw"),
     [
@@ -383,7 +488,7 @@ def test_a_failed_sleep_is_logged(monkeypatch, caplog):
 
     sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE))  # the fakes
     monkeypatch.setattr(schedule, "suspend", suspend)
-    schedule.sleep_if_unattended([], WOKE, True, bool, bool, lambda: AFTER_WAKE)
+    schedule.sleep_if_unattended([], WOKE, True, False, bool, bool, lambda: AFTER_WAKE)
     assert "SetSuspendState falló" in caplog.text
 
 

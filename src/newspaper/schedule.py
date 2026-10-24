@@ -124,6 +124,12 @@ AWAKE_AFTER_VISIT = timedelta(minutes=15)
 # beyond that a grace swallows real use, so a later phantom means rethinking, not widening.
 SCHEDULED_WAKE_GRACE = timedelta(minutes=3)
 WAKE_GRACE = timedelta(seconds=15)
+# Phantoms come later too (2026-10-24: a second one at +7 min). A phantom is one burst; a person
+# touches the PC again and again. So after one of our wakes the PC also sleeps once nobody touched
+# it in AWAY (the display goes off at 15 min: 5 more for whoever reads without touching), unless
+# the web saw it used: two inputs more than USE_GAP apart past the grace.
+AWAY = timedelta(minutes=20)
+USE_GAP = timedelta(minutes=1)
 # Our wakes came at 06:00:23 … 06:02:35; and in this window after a scheduled time our own job may
 # be starting (generate claims its edition ~10 s in), so nothing is slept then.
 SCHEDULED_WAKE_WINDOW = timedelta(minutes=10)
@@ -185,9 +191,9 @@ def _tick() -> int:
     return kernel32.GetTickCount64()
 
 
-def _snapshot() -> tuple[int, int, int]:
-    """(GetTickCount64 ms, GetLastInputInfo's 32-bit tick, last_wake()). The input before the
-    tick: a key pressed between the two reads is never newer than the tick."""
+def _input_tick() -> tuple[int, int]:
+    """(GetTickCount64 ms, GetLastInputInfo's 32-bit tick). The input before the tick: a key
+    pressed between the two reads is never newer than the tick."""
     import ctypes
     from ctypes import wintypes
 
@@ -198,7 +204,12 @@ def _snapshot() -> tuple[int, int, int]:
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     if not user32.GetLastInputInfo(ctypes.byref(info)):
         raise ctypes.WinError(ctypes.get_last_error())
-    return _tick(), info.dwTime, last_wake()
+    return _tick(), info.dwTime
+
+
+def _snapshot() -> tuple[int, int, int]:
+    """(GetTickCount64 ms, GetLastInputInfo's 32-bit tick, last_wake())."""
+    return (*_input_tick(), last_wake())
 
 
 def _console_session() -> bool:
@@ -236,14 +247,16 @@ def sleep_if_unattended(
     scheduled: list[time],
     wake: int,
     fresh: bool,
+    used: bool,
     needed: Callable[[], bool],
     visited: Callable[[], bool],
     now: Callable[[], datetime] = datetime.now,
 ) -> None:
-    """Sleep the PC if nobody touched it since `wake` and nothing needs it any more: called by
-    keep_awake, still holding, when a hold of this wake ends (`fresh`: it began after a "no" in
-    this wake, not left over from before a sleep; `visited`: a visit since it asked). Any doubt
-    keeps it awake; web.log keeps the numbers of each decision."""
+    """Sleep the PC if nobody touched it since `wake` (after one of ours, also if nobody touched
+    it in AWAY and it wasn't `used`) and nothing needs it any more: called by keep_awake, still
+    holding, when a hold of this wake ends (`fresh`: it began after a "no" in this wake, not left
+    over from before a sleep; `visited`: a visit since it asked). Any doubt keeps it awake;
+    web.log keeps the numbers of each decision."""
     log = logging.getLogger(__name__)
     if needed():  # the slow question first: the snapshot is the last thing read before sleeping
         log.info("Suelto el PC: la razón volvió, no lo duermo")
@@ -263,12 +276,20 @@ def sleep_if_unattended(
     woke_at = _clock(wake, tick, moment)
     grace = wake_grace(woke_at, moment, scheduled)
     ours = grace == SCHEDULED_WAKE_GRACE
+    idle = timedelta(milliseconds=tick - wake // 10_000) - after  # clamped like `after`
+    away = ours and not used and idle >= AWAY
     said = (
         f"Suelto el PC: despertó {woke_at:%H:%M:%S}{' (programado)' if ours else ''}, última "
         f"entrada {after.total_seconds():+.0f} s (margen {grace.total_seconds():.0f} s), "
-        f"estado {_power_info(16):#x}"  # ponytail: data only, for a video/audio veto if needed
+        + (
+            f"hace {idle.total_seconds():.0f} s (umbral {AWAY.total_seconds():.0f} s"
+            f"{', con uso' if used else ''}), "
+            if ours
+            else ""
+        )
+        + f"estado {_power_info(16):#x}"  # ponytail: data only, for a video/audio veto if needed
     )
-    if after > grace:
+    if after > grace and not away:
         log.info("%s: hay alguien", said)
     elif not fresh and not ours:
         log.info("%s: la retención venía de antes del despertar, no lo duermo", said)
@@ -291,15 +312,16 @@ def sleep_if_unattended(
 @contextmanager
 def keep_awake(
     needed: Callable[[], bool] = lambda: True,
-    sleep: Callable[[int, bool, Callable[[], bool], Callable[[], bool]], None] | None = None,
+    sleep: Callable[[int, bool, bool, Callable[[], bool], Callable[[], bool]], None] | None = None,
 ) -> Iterator[Callable[[], None]]:
     """Ask Windows not to sleep while the edition is written, or while the web reader has a
     reason (`needed`, asked at every renewal): the task may have woken the PC, and Windows puts
     it back to sleep unless asked. Yields `recheck`, which asks `needed` again right away.
 
     With `sleep` (the web's), the end of a hold seen in this same wake calls
-    `sleep(wake, fresh, needed, visited)` before letting go: Windows may count an unattended PC
-    as attended."""
+    `sleep(wake, fresh, used, needed, visited)` before letting go: Windows may count an
+    unattended PC as attended. `used`: each renewal reads the last input, and two of them more
+    than USE_GAP apart past the grace are someone using the PC in this wake."""
     if sys.platform != "win32":
         yield lambda: None
         return
@@ -328,11 +350,26 @@ def keep_awake(
         held_in = None  # the wake in which the web surely needed the PC: only its end may sleep it
         free_in = None  # the wake in which it last didn't
         fresh = False  # the hold began after a "no" in its wake: not left over from before a sleep
+        seen_in = None  # the wake that `first` and `used` describe
+        first = None  # its first input past the grace
+        used = False
         while not done.is_set():
             recheck.clear()  # before asking: a recheck from now on is answered
             awake, sure = ask()
             if sleep is not None:
                 wake = woke()
+                if wake is not None and wake != seen_in:
+                    seen_in, first, used = wake, None, False
+                if wake is not None and not used:
+                    try:
+                        after = input_after_wake(*_input_tick(), wake)
+                    except Exception:  # any doubt keeps it awake: only "nobody since it woke" left
+                        log.warning("keep_awake: no sé si usaron el PC", exc_info=True)
+                        used = True
+                    else:
+                        if after is not None and after > SCHEDULED_WAKE_GRACE:
+                            first = after if first is None else first
+                            used = abs(after - first) > USE_GAP
                 if awake and sure:
                     if held_in != wake:
                         fresh = free_in == wake
@@ -341,7 +378,7 @@ def keep_awake(
                     if wake is not None and wake == held_in:
                         held_in = None  # once per hold
                         try:
-                            sleep(wake, fresh, lambda: ask()[0], recheck.is_set)
+                            sleep(wake, fresh, used, lambda: ask()[0], recheck.is_set)
                         except Exception:
                             log.warning("keep_awake: no pude dormir el PC", exc_info=True)
                         awake, _ = ask()  # never let go on a stale "no": a visit may have come
