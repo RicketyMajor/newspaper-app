@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from newspaper import schedule
@@ -8,6 +9,9 @@ from newspaper.config.models import NewspaperConfig
 from newspaper.storage import queries
 from newspaper.storage.database import open_db
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
+from newspaper.web.app import create_app
+
+SAME = {"sec-fetch-site": "same-origin"}  # what the page's own fetches and forms send
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +38,11 @@ def config(tmp_path):
 @pytest.fixture
 def engine(config):
     return open_db(config)
+
+
+@pytest.fixture
+def client(config):
+    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
 
 def add_article(s: Session, n: int, *, source: str = "CIPER", section: str = "Chile") -> Article:

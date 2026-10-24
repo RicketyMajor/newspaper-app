@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -10,13 +9,9 @@ from newspaper.edition.today import local_today
 from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 from newspaper.web.app import create_app
 
+from .conftest import SAME
+
 PRELOAD = {"service-worker-navigation-preload": "true"}
-SAME = {"sec-fetch-site": "same-origin"}
-
-
-@pytest.fixture
-def client(config):
-    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
 
 def test_the_copy_lists_the_edition_guardado_and_their_sources(client, engine, seeded):

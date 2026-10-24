@@ -11,16 +11,11 @@ from newspaper import notify
 from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 from newspaper.web.app import create_app
 
+from .conftest import SAME
 from .test_notify import browser, compressed_point
 
 FCM = "https://fcm.googleapis.com/fcm/send/phone"
-SAME = {"sec-fetch-site": "same-origin"}
 NAV = {"sec-fetch-dest": "document"}
-
-
-@pytest.fixture
-def client(config):
-    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
 
 @pytest.fixture

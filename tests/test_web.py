@@ -12,11 +12,6 @@ from newspaper.storage.models import Article, Edition, EditionStatus, Note, utcn
 from newspaper.web.app import create_app
 
 
-@pytest.fixture
-def client(config):
-    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
-
-
 def test_front_page_shows_lead_note_and_sections(client, seeded):
     page = client.get("/").text
     assert "Senado aprueba reforma de pensiones" in page
