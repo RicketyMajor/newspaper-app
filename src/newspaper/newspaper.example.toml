@@ -9,6 +9,7 @@ edition_name = "Newspaper"
 language = "es"                     # language of the written notes and the UI
 timezone = "America/Santiago"
 edition_hour = 6                    # local hour (0-23) to prepare the daily edition
+# notice_time = "07:30"             # local HH:MM for the notice; unset: when the edition is ready
 
 [llm]
 base_url = "http://localhost:11434" # Ollama

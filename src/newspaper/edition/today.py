@@ -28,6 +28,16 @@ def local_today(config: NewspaperConfig, now: datetime | None = None) -> date:
     return (now or datetime.now(UTC)).astimezone(ZoneInfo(config.general.timezone)).date()
 
 
+def notice_at(config: NewspaperConfig, now: datetime | None = None) -> datetime | None:
+    """Today's notice_time as an aware local datetime; None when the notice goes out with the
+    edition."""
+    if not config.general.notice_time:
+        return None
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo(config.general.timezone))
+    hour, minute = map(int, config.general.notice_time.split(":"))
+    return local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
 def pid_alive(pid: int | None) -> bool:
     if not pid:
         return False

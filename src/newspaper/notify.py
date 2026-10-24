@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from .config.models import NewspaperConfig
 from .dates import long_date
+from .edition.today import notice_at
 from .storage import queries
 from .storage.database import open_db
 from .storage.models import Edition, EditionStatus, PushSubscription, utcnow
@@ -41,6 +42,8 @@ CONTACT = "mailto:newspaper@localhost"
 TTL = 12 * 3600  # a notice older than half a day is stale
 PUSH_HOSTS = {"fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"}
 PUSH_SUFFIX = ".notify.windows.com"
+# generate and fetch let the notice task go first at notice_time: it is the one that retries.
+NOTICE_GRACE = timedelta(minutes=5)
 
 
 def key_path(config: NewspaperConfig) -> Path:
@@ -251,9 +254,21 @@ def _set(engine: Engine, edition_id: int, where: tuple = (), **values) -> int:
         return conn.execute(stmt).rowcount
 
 
-def edition_notice(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> None:
+def edition_notice(
+    config: NewspaperConfig,
+    day: date,
+    log: Callable[[str], None],
+    *,
+    guard: bool = True,
+    now: datetime | None = None,
+) -> None:
     """The automatic notice: at most one per edition, never for one already opened. Runs after
-    every `generate` and at the start of every `fetch` (decision 2026-10-21)."""
+    every `generate` and at the start of every `fetch` (decision 2026-10-21), and with
+    `guard=False` from the notice task (`notify --pendiente`): with notice_time set, the
+    others wait until it plus NOTICE_GRACE."""
+    at = notice_at(config, now)
+    if guard and at and (now or datetime.now(UTC)) < at + NOTICE_GRACE:
+        return
     engine = open_db(config)
     with Session(engine) as s:
         edition = queries.today_edition(s, day)

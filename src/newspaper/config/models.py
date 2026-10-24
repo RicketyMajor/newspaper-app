@@ -41,6 +41,9 @@ class GeneralConfig(BaseModel):
     language: str = "es"
     timezone: str = "America/Santiago"
     edition_hour: int = Field(default=6, ge=0, le=23)
+    # The daily notice at a fixed local time (HH:MM): a task wakes the PC for it. Unset, it goes
+    # out when the edition is ready.
+    notice_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class LLMConfig(BaseModel):

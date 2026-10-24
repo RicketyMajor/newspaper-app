@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import http_ece
@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from newspaper import notify
+from newspaper.edition.today import notice_at
 from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
 
 
@@ -369,6 +370,36 @@ def test_the_automatic_notice_goes_out_once(config, engine, seeded, push):
     notify.edition_notice(config, DAY, lambda _: None)
     notify.edition_notice(config, DAY, lambda _: None)  # a later fetch, a skipped generate
     assert len(push.messages) == 1 and marks(engine)[0] is not None
+
+
+EARLY = datetime(2026, 10, 10, 10, 32, tzinfo=UTC)  # 07:32 in Santiago (UTC-3)
+LATE = datetime(2026, 10, 10, 10, 36, tzinfo=UTC)  # 07:36
+
+
+def test_notice_at_is_todays_local_time(config):
+    assert notice_at(config, EARLY) is None
+    config.general.notice_time = "07:30"
+    at = notice_at(config, EARLY)
+    assert (at.hour, at.minute, at.utcoffset().total_seconds()) == (7, 30, -3 * 3600)
+
+
+def test_generate_and_fetch_wait_until_after_the_notice_time(config, engine, seeded, push):
+    config.general.notice_time = "07:30"
+    notify.edition_notice(config, DAY, print, now=EARLY)
+    assert push.messages == [] and marks(engine)[0] is None
+    notify.edition_notice(config, DAY, print, now=LATE)
+    assert len(push.messages) == 1
+
+
+def test_the_notice_task_skips_the_hour_guard(config, engine, seeded, push):
+    config.general.notice_time = "07:30"
+    notify.edition_notice(config, DAY, print, guard=False, now=EARLY)
+    assert len(push.messages) == 1
+
+
+def test_without_notice_time_the_notice_goes_out_with_the_edition(config, engine, seeded, push):
+    notify.edition_notice(config, DAY, print, now=EARLY)
+    assert len(push.messages) == 1
 
 
 def test_an_opened_edition_is_not_notified_late(config, engine, seeded, push):
