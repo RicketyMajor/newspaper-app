@@ -2,7 +2,7 @@
 
 import functools
 import logging
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import schedule
 from ..config.models import NewspaperConfig
 from ..dates import long_date
-from ..edition.today import local_today, running, today_banner
+from ..edition.today import local_today, notice_at, running, today_banner
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article, Edition, EditionStatus, utcnow
@@ -82,9 +82,22 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             making = s.scalars(select(Edition).where(Edition.status == EditionStatus.generating))
             if any(running(e) for e in making):
                 return True
-            # Any date: a run past midnight is still this morning's.
-            finished = s.scalar(select(func.max(Edition.finished_at)))
-        return finished is not None and now - finished < schedule.AWAKE_AFTER_EDITION
+            # The notice task's wake (#20a): a window even when its notice fails, since visits
+            # are what repair a dead subscription.
+            at = notice_at(config)
+            aware_now = datetime.now(UTC)
+            in_window = at is not None and at <= aware_now < at + schedule.AWAKE_AFTER_NOTICE
+            if in_window and queries.today_edition(s, local_today(config)) is not None:
+                return True
+            # Any date: a run past midnight is still this morning's. After an edition (a failed
+            # one too) only AWAY, so #22b doesn't decide on the generation's phantom inputs; the
+            # phone's room comes from the notice (a late one, or `newspaper notify`).
+            finished, notified = s.execute(
+                select(func.max(Edition.finished_at), func.max(Edition.notified_at))
+            ).one()
+        return (finished is not None and now - finished < schedule.AWAY) or (
+            notified is not None and now - notified < schedule.AWAKE_AFTER_NOTICE
+        )
 
     app.state.awake = awake
     # DNS rebinding: a foreign domain resolving to 127.0.0.1 must not read the reading history.
@@ -407,8 +420,12 @@ def serve(config: NewspaperConfig, port: int, open_browser: bool = True) -> None
     app = create_app(config)
     # After the 06:00 wake Windows sleeps again unless asked: the phone needs it awake for the
     # notice and while reading, not all day. And when that ends with nobody at the PC, the web
-    # sleeps it: Windows may take the 06:00 wake for someone there (#22).
-    sleep = functools.partial(schedule.sleep_if_unattended, [time(config.general.edition_hour)])
+    # sleeps it: Windows may take the 06:00 wake for someone there (#22). The notice task's wake
+    # is ours too, so its phantom inputs don't count while `notify --pendiente` retries.
+    scheduled = [time(config.general.edition_hour)]
+    if config.general.notice_time:
+        scheduled.append(time.fromisoformat(config.general.notice_time))
+    sleep = functools.partial(schedule.sleep_if_unattended, scheduled)
     with schedule.keep_awake(app.state.awake, sleep) as app.state.recheck:
         # log_config=None: uvicorn's default calls sys.stdout.isatty(); pythonw has None.
         uvicorn.run(app, host="127.0.0.1", port=port, log_config=None)

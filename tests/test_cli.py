@@ -252,7 +252,7 @@ def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded)
     assert "Avisos: 1 suscripción (1 en el teléfono)" in result.output
 
 
-def run_web(tmp_path, monkeypatch, uvicorn_run, *args):
+def run_web(tmp_path, monkeypatch, uvicorn_run, *args, extra=""):
     """`newspaper web` with uvicorn, the browser, recovery and keep_awake faked."""
     calls = SimpleNamespace(recovered=0, opened=[], awake=[])
 
@@ -281,7 +281,7 @@ def run_web(tmp_path, monkeypatch, uvicorn_run, *args):
     monkeypatch.setattr("webbrowser.open", calls.opened.append)
     monkeypatch.setattr("newspaper.schedule.keep_awake", keep_awake)
     monkeypatch.setattr("uvicorn.run", uvicorn_run)
-    config = write_config(tmp_path, tmp_path / "data" / "newspaper.db")
+    config = write_config(tmp_path, tmp_path / "data" / "newspaper.db", extra)
     result = CliRunner().invoke(main, ["--config", str(config), "web", *args])
     for handler in logging.root.handlers[:]:  # serve() logs to web.log through the root logger
         handler.close()
@@ -314,6 +314,17 @@ def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monke
     assert "uvicorn.error: Exception in ASGI application" in log
     assert "newspaper.schedule: Suelto el PC: …: lo duermo" in log  # each decision, to calibrate
     assert "Started server process" not in log
+
+
+def test_the_notice_tasks_wake_is_ours_too(tmp_path, monkeypatch):
+    # The 07:30 wake gets the 3-min grace, so the web doesn't sleep the PC on its phantom inputs
+    # while `notify --pendiente` retries.
+    notice = '\n[general]\nnotice_time = "07:30"\n'
+    result, calls = run_web(
+        tmp_path, monkeypatch, lambda app, **_: None, "--no-browser", extra=notice
+    )
+    assert result.exit_code == 0, result.output
+    assert calls.sleep.args == ([time(6), time(7, 30)],)
 
 
 def test_web_on_a_taken_port_points_to_the_running_server(tmp_path, monkeypatch):

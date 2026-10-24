@@ -128,10 +128,11 @@ ES_SYSTEM_REQUIRED = 0x00000001
 # Windows drops the request when the PC sleeps and doesn't restore it on wake (seen 2026-10-18),
 # and after an unattended wake it sleeps again within ~2 min: renew well inside that.
 RENEW_SECONDS = 60
-# The web reader keeps the PC awake this long after an edition (the notice reaches the phone)
-# and after each visit (someone reading); then an unattended PC sleeps again (2026-10-22).
+# The web reader keeps the PC awake this long after the notice (the phone saves its copy and
+# reads), and after each visit; then an unattended PC sleeps again (2026-10-22, #20a). After an
+# edition only AWAY (below): the decision comes that long after the generation's phantom inputs.
 # ponytail: constants; move them to the TOML if they need tuning.
-AWAKE_AFTER_EDITION = timedelta(minutes=30)
+AWAKE_AFTER_NOTICE = timedelta(minutes=30)
 AWAKE_AFTER_VISIT = timedelta(minutes=15)
 # Letting go isn't always enough: after the 06:00 wake Windows may count the PC as attended (a key
 # report 1 s after waking, the session unlocking itself a minute later; 2026-10-20, 22 and 23)
@@ -167,7 +168,7 @@ def input_after_wake(tick_ms: int, input_ms32: int, wake_100ns: int) -> timedelt
 
 def _at_scheduled(moment: datetime, scheduled: list[time]) -> bool:
     """Within the window after a scheduled time (local). ponytail: the window doesn't cross
-    midnight; today the only time is 06:00."""
+    midnight; today the times are the edition's and the notice's (06:00, 07:30)."""
     return any(
         timedelta(0) <= moment - datetime.combine(moment.date(), t) < SCHEDULED_WAKE_WINDOW
         for t in scheduled

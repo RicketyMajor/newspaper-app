@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -281,13 +281,13 @@ def test_interest_label_on_cards_and_explained_on_the_note(client, engine, seede
     assert "Te interesa" not in client.get(f"/n/{seeded['front']}").text
 
 
-def test_the_pc_stays_awake_only_after_an_edition_or_a_visit(config, engine):
+def test_the_pc_stays_awake_only_while_needed(config, engine, monkeypatch):
     # 2026-10-22: the PC stayed awake from the 06:02 wake until noon with nobody reading.
     app = create_app(config)
     rechecks = []
     app.state.recheck = lambda: rechecks.append(1)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
-    assert not app.state.awake()  # no edition, no visit: Windows may sleep again
+    assert not app.state.awake()  # nothing to do: Windows may sleep again
     client.get("/estado")  # a tab left open polls it: nobody is reading
     assert not app.state.awake() and not rechecks
     client.get("/")
@@ -296,18 +296,48 @@ def test_the_pc_stays_awake_only_after_an_edition_or_a_visit(config, engine):
     assert not app.state.awake()
 
     with Session(engine) as s, s.begin():
-        edition = Edition(edition_date=date(2026, 10, 22), pid=os.getpid())
+        edition = Edition(edition_date=local_today(config), pid=os.getpid())
         s.add(edition)
         s.flush()
         edition_id = edition.id
     assert app.state.awake()  # being written: held before `generate` lets go
     with Session(engine) as s, s.begin():
         edition = s.get(Edition, edition_id)
-        edition.status, edition.finished_at = EditionStatus.ready, utcnow() - timedelta(minutes=10)
-    assert app.state.awake()  # the notice just went out: room for the phone
+        edition.status = EditionStatus.ready
+        edition.finished_at = utcnow() - schedule.AWAY + timedelta(minutes=1)
+    # ready, no notice yet: still held, so #22b decides away from the generation's phantoms
+    assert app.state.awake()
     with Session(engine) as s, s.begin():
-        s.get(Edition, edition_id).finished_at = utcnow() - timedelta(minutes=40)
+        edition = s.get(Edition, edition_id)
+        edition.status, edition.finished_at = EditionStatus.failed, utcnow()
+    assert app.state.awake()  # a failed run too: its hold doesn't end inside the task's window
+    with Session(engine) as s, s.begin():
+        edition = s.get(Edition, edition_id)
+        edition.status, edition.finished_at = EditionStatus.ready, utcnow() - schedule.AWAY
+    assert not app.state.awake()  # AWAY, not the notice's 30 min
+
+    with Session(engine) as s, s.begin():
+        s.get(Edition, edition_id).notified_at = utcnow() - timedelta(minutes=25)
+    assert app.state.awake()  # the notice went out (or `newspaper notify`): room for the phone
+    with Session(engine) as s, s.begin():
+        s.get(Edition, edition_id).notified_at = utcnow() - schedule.AWAKE_AFTER_NOTICE
     assert not app.state.awake()
+
+    config.general.notice_time = "07:30"
+    soon = datetime.now(UTC) - timedelta(minutes=25)
+    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: soon)
+    assert app.state.awake()  # the notice task's wake: a window even if its notice fails
+    monkeypatch.setattr(
+        "newspaper.web.app.notice_at", lambda _: datetime.now(UTC) - schedule.AWAKE_AFTER_NOTICE
+    )
+    assert not app.state.awake()
+    later = datetime.now(UTC) + timedelta(minutes=1)
+    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: later)
+    assert not app.state.awake()  # not before it: the 06:00 wake isn't held until 08:00
+    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: soon)
+    with Session(engine) as s, s.begin():
+        s.get(Edition, edition_id).edition_date = local_today(config) - timedelta(days=1)
+    assert not app.state.awake()  # no edition today: nothing for the phone to save
 
 
 def test_accepts_the_tailnet_name_behind_tailscale_serve(client):
