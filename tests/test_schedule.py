@@ -167,7 +167,7 @@ def hold_and_sleep(monkeypatch, needed, wakes, sleep=None):
     monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
     monkeypatch.setattr(schedule, "last_wake", answering(wakes))
 
-    def record(wake, fresh, still_needed):
+    def record(wake, fresh, still_needed, visited):
         events.append(("sleep", wake, fresh, still_needed()))
 
     with schedule.keep_awake(answering(needed), sleep=sleep or record):
@@ -182,6 +182,34 @@ def test_the_end_of_a_hold_may_sleep_the_pc_while_still_holding(monkeypatch):
     events = hold_and_sleep(monkeypatch, [False, True, False], [5])
     assert events[:4] == [FREE, HOLD, ("sleep", 5, True, False), FREE]
     assert [e for e in events if e not in (HOLD, FREE)] == [("sleep", 5, True, False)]  # once
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_visit_while_deciding_is_seen_right_before_sleeping(monkeypatch):
+    import ctypes
+    import threading
+    import time as clock
+
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=lambda state: None)
+    )
+    monkeypatch.setattr(schedule, "last_wake", lambda: 5)
+    seen, decided = [], threading.Event()
+    answers = answering([False, True, False])
+
+    def sleep(wake, fresh, still_needed, visited):
+        seen.append(visited())
+        recheck()  # the visit middleware, mid-decision
+        seen.append(visited())
+        decided.set()
+
+    with schedule.keep_awake(answers, sleep=sleep) as recheck:  # renewal: 60 s
+        recheck()  # a visit: hold
+        clock.sleep(0.05)
+        monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
+        recheck()  # its window is over: decide
+        assert decided.wait(2)
+    assert seen == [False, True]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
@@ -225,7 +253,7 @@ def test_an_unknown_wake_only_turns_off_the_sleeping(monkeypatch):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
 def test_a_failed_sleep_keeps_renewing(monkeypatch):
-    def sleep(wake, fresh, still_needed):
+    def sleep(wake, fresh, still_needed, visited):
         raise OSError("SetSuspendState")
 
     events = hold_and_sleep(monkeypatch, [True, False, True], [5], sleep=sleep)
@@ -264,6 +292,10 @@ def test_our_wake_forgives_the_phantom_input_of_its_first_minutes():
     woke = datetime(2026, 10, 23, 6, 2, 32)
     grace = schedule.wake_grace(woke, woke + timedelta(minutes=53), SIX)
     assert grace == schedule.SCHEDULED_WAKE_GRACE >= timedelta(seconds=67)
+    # an edition at 23:00 whose hold ends past midnight: still that wake
+    woke = datetime(2026, 10, 23, 23, 2)
+    grace = schedule.wake_grace(woke, woke + timedelta(hours=1), [time(23)])
+    assert grace == schedule.SCHEDULED_WAKE_GRACE
 
 
 def test_any_other_wake_forgives_only_the_key_that_woke_it():
@@ -278,7 +310,9 @@ def test_any_other_wake_forgives_only_the_key_that_woke_it():
 AFTER_WAKE = datetime(2026, 10, 23, 23, 20)  # not one of our wakes: the 15 s grace
 
 
-def sleep_if_unattended(monkeypatch, caplog, snapshot, *, needed=False, console=True, **kw):
+def sleep_if_unattended(
+    monkeypatch, caplog, snapshot, *, needed=False, console=True, visited=False, **kw
+):
     """`sleep_if_unattended` at AFTER_WAKE (unless `now`), fresh unless told; True if it slept."""
     slept, order = [], []
     monkeypatch.setattr(schedule, "suspend", lambda: slept.append(1))
@@ -292,11 +326,15 @@ def sleep_if_unattended(monkeypatch, caplog, snapshot, *, needed=False, console=
         order.append("needed")
         return needed
 
+    def was_visited():
+        order.append("visited")
+        return visited
+
     now = kw.get("now", AFTER_WAKE)
-    schedule.sleep_if_unattended(
-        kw.get("scheduled", SIX), WOKE, kw.get("fresh", True), still_needed, lambda: now
-    )
+    fresh = kw.get("fresh", True)
+    schedule.sleep_if_unattended(SIX, WOKE, fresh, still_needed, was_visited, lambda: now)
     assert order[0] == "needed"  # the slow question first: the snapshot is the last thing read
+    assert not slept or order[-1] == "visited"  # and a visit, right before sleeping
     return bool(slept)
 
 
@@ -330,6 +368,7 @@ def test_our_wake_sleeps_even_with_a_hold_already_there(monkeypatch, caplog):
         ((1_100_000, 1_001_000, 0), {}),  # can't tell when it woke
         ((1_100_000, 1_001_000, WOKE), {"console": False}),  # another session: input not seen
         ((1_100_000, 1_001_000, WOKE), {"fresh": False}),  # the hold came from before the wake
+        ((1_100_000, 1_001_000, WOKE), {"visited": True}),  # the phone, right now
         ((1_100_000, 1_001_000, WOKE), {"now": datetime(2026, 10, 24, 6, 0, 5)}),  # job starting
     ],
 )
@@ -344,7 +383,7 @@ def test_a_failed_sleep_is_logged(monkeypatch, caplog):
 
     sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE))  # the fakes
     monkeypatch.setattr(schedule, "suspend", suspend)
-    schedule.sleep_if_unattended([], WOKE, True, lambda: False, lambda: AFTER_WAKE)
+    schedule.sleep_if_unattended([], WOKE, True, bool, bool, lambda: AFTER_WAKE)
     assert "SetSuspendState falló" in caplog.text
 
 

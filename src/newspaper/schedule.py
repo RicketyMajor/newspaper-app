@@ -152,8 +152,9 @@ def _at_scheduled(moment: datetime, scheduled: list[time]) -> bool:
 
 
 def wake_grace(woke_at: datetime, now: datetime, scheduled: list[time]) -> timedelta:
-    """How long after waking an input is still no one: longer after one of today's own wakes."""
-    ours = woke_at.date() == now.date() and _at_scheduled(woke_at, scheduled)
+    """How long after waking an input is still no one: longer after one of our own wakes, if it
+    was this one's (past midnight too, for a 23:00 edition), not one a day old."""
+    ours = now - woke_at < timedelta(hours=12) and _at_scheduled(woke_at, scheduled)
     return SCHEDULED_WAKE_GRACE if ours else WAKE_GRACE
 
 
@@ -226,17 +227,23 @@ def suspend() -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+def _clock(interrupt_100ns: int, tick_ms: int, now: datetime) -> datetime:
+    """An interrupt-time instant (LastWakeTime, LastSleepTime) in local time."""
+    return now - timedelta(milliseconds=tick_ms - interrupt_100ns // 10_000)
+
+
 def sleep_if_unattended(
     scheduled: list[time],
     wake: int,
     fresh: bool,
     needed: Callable[[], bool],
+    visited: Callable[[], bool],
     now: Callable[[], datetime] = datetime.now,
 ) -> None:
     """Sleep the PC if nobody touched it since `wake` and nothing needs it any more: called by
     keep_awake, still holding, when a hold of this wake ends (`fresh`: it began after a "no" in
-    this wake, not left over from before a sleep). Any doubt keeps it awake; web.log keeps the
-    numbers of each decision."""
+    this wake, not left over from before a sleep; `visited`: a visit since it asked). Any doubt
+    keeps it awake; web.log keeps the numbers of each decision."""
     log = logging.getLogger(__name__)
     if needed():  # the slow question first: the snapshot is the last thing read before sleeping
         log.info("Suelto el PC: la razón volvió, no lo duermo")
@@ -253,7 +260,7 @@ def sleep_if_unattended(
     if after is None:
         log.info("Suelto el PC: datos dudosos (despertar %s), no lo duermo", wake)
         return
-    woke_at = moment - timedelta(milliseconds=tick - wake // 10_000)
+    woke_at = _clock(wake, tick, moment)
     grace = wake_grace(woke_at, moment, scheduled)
     ours = grace == SCHEDULED_WAKE_GRACE
     said = (
@@ -267,6 +274,8 @@ def sleep_if_unattended(
         log.info("%s: la retención venía de antes del despertar, no lo duermo", said)
     elif not _console_session():
         log.info("%s: otra sesión, no lo duermo", said)
+    elif visited():  # the phone, while it decided: its middleware asked for a recheck
+        log.info("%s: una visita, no lo duermo", said)
     else:
         log.info("%s: lo duermo", said)
         try:
@@ -274,27 +283,23 @@ def sleep_if_unattended(
         except OSError as e:
             log.warning("SetSuspendState falló: %s", e)
             return
-
-        def at(level: int) -> str:
-            return (
-                f"{now() - timedelta(milliseconds=_tick() - _power_info(level) // 10_000):%H:%M:%S}"
-            )
-
-        log.info("Volvió: durmió de %s a %s", at(15), at(14))
+        tick, back = _tick(), now()  # SetSuspendState returns once the PC is back
+        slept, woke = (_clock(_power_info(level), tick, back) for level in (15, 14))
+        log.info("Volvió: durmió de %s a %s", f"{slept:%H:%M:%S}", f"{woke:%H:%M:%S}")
 
 
 @contextmanager
 def keep_awake(
     needed: Callable[[], bool] = lambda: True,
-    sleep: Callable[[int, bool, Callable[[], bool]], None] | None = None,
+    sleep: Callable[[int, bool, Callable[[], bool], Callable[[], bool]], None] | None = None,
 ) -> Iterator[Callable[[], None]]:
     """Ask Windows not to sleep while the edition is written, or while the web reader has a
     reason (`needed`, asked at every renewal): the task may have woken the PC, and Windows puts
     it back to sleep unless asked. Yields `recheck`, which asks `needed` again right away.
 
     With `sleep` (the web's), the end of a hold seen in this same wake calls
-    `sleep(wake, fresh, needed)` before letting go: Windows may count an unattended PC as
-    attended."""
+    `sleep(wake, fresh, needed, visited)` before letting go: Windows may count an unattended PC
+    as attended."""
     if sys.platform != "win32":
         yield lambda: None
         return
@@ -336,7 +341,7 @@ def keep_awake(
                     if wake is not None and wake == held_in:
                         held_in = None  # once per hold
                         try:
-                            sleep(wake, fresh, lambda: ask()[0])
+                            sleep(wake, fresh, lambda: ask()[0], recheck.is_set)
                         except Exception:
                             log.warning("keep_awake: no pude dormir el PC", exc_info=True)
                         awake, _ = ask()  # never let go on a stale "no": a visit may have come
