@@ -82,6 +82,18 @@ def test_a_saved_copy_is_no_opening(client, engine, seeded):
         assert s.get(Note, seeded["front"]).opened_at is None
 
 
+def test_saving_the_copy_is_no_visit(client, seeded):
+    # Else every save would hold the PC 15 min and wake #22b's decision with a phantom visit.
+    rechecks = []
+    client.app.state.recheck = lambda: rechecks.append(1)
+    client.get("/sin-pc")
+    client.get(f"/n/{seeded['front']}", headers={"x-sin-pc": "1"})
+    client.get("/static/style.css", headers={"x-sin-pc": "1"})
+    assert client.app.state.visited == datetime.min and not rechecks
+    client.get(f"/n/{seeded['front']}")
+    assert client.app.state.visited > datetime.min and rechecks
+
+
 def test_the_worker_is_served_even_without_notices(config, monkeypatch):
     monkeypatch.setattr("newspaper.web.app._push", lambda config: None)
     client = TestClient(create_app(config), base_url="http://127.0.0.1:8765")

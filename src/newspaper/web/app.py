@@ -82,7 +82,9 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
     @app.middleware("http")  # inside TrustedHostMiddleware: a refused Host is no visit
     async def visit(request: Request, call_next):
-        if request.url.path != "/estado":  # a tab left open polls it while today isn't ready
+        # Not /estado: a tab left open polls it while today isn't ready. Nor the worker saving
+        # the copy (#20a): its manifest and every page and static it downloads.
+        if request.url.path not in ("/estado", "/sin-pc") and "x-sin-pc" not in request.headers:
             app.state.visited = utcnow()
             app.state.recheck()  # now: the PC may be one breath from sleeping
         return await call_next(request)
