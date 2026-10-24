@@ -388,11 +388,19 @@ function applyMarks(base) {
     }
   }
   const lead = document.querySelector(".noon-wrap .lead");
-  if (lead && core.length && document.querySelector(".noon-wrap .left")) {  // Pleno día
+  if (lead && core.length) {  // Pleno día, saved either way: the base may have moved both ways
     const left = core.length - read.length;
-    lead.textContent = left
-      ? `Te faltan ${left} de las ${core.length}\u00a0notas esenciales.`
-      : "Terminaste lo esencial.";
+    const back = document.querySelector(".noon-wrap .left");
+    if (left) {
+      lead.textContent = `Te faltan ${left} de las ${core.length}\u00a0notas esenciales.`;
+      if (!back) {
+        const edition = document.querySelector(".noon-wrap .cta .s").getAttribute("href");
+        lead.insertAdjacentHTML("afterend", `<p class="left"><a href="${edition}">Volver a ellas</a></p>`);
+      }
+    } else if (back) {  // finished since it was saved; a page saved finished keeps its own line
+      lead.textContent = "Terminaste lo esencial.";
+      back.remove();
+    }
   }
 }
 
