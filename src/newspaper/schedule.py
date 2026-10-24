@@ -16,6 +16,7 @@ from .config.models import NewspaperConfig
 TASK_NAME = "Newspaper"
 FETCH_TASK_NAME = "Newspaper fetch"
 WEB_TASK_NAME = "Newspaper web"
+NOTICE_TASK_NAME = "Newspaper aviso"
 WEB_PORT = 8765  # `newspaper web`'s default, which the task uses
 # ponytail: Cooperativa's feed holds 15 items, ~100 min of news at midday (2026-10-14);
 # 30 min leaves room for bursts. Make it a setting if another feed needs a different pace.
@@ -60,6 +61,21 @@ def install_script(config: NewspaperConfig) -> str:
 
     every = f"-RepetitionInterval (New-TimeSpan -Minutes {FETCH_EVERY_MINUTES})"
     web = _quote(WEB_TASK_NAME)
+    notice = config.general.notice_time
+    if notice:
+        notice_step = register(
+            NOTICE_TASK_NAME,
+            "notify --pendiente",
+            [f"-Daily -At '{notice}'"],
+            10,
+            "Despierta el equipo y manda el aviso de Newspaper a su hora",
+            wake=True,
+        )
+    else:  # no longer configured: a task left from before would still wake the PC
+        notice_step = (
+            f"Unregister-ScheduledTask -TaskName {_quote(NOTICE_TASK_NAME)} -Confirm:$false "
+            "-ErrorAction SilentlyContinue"
+        )
     return "; ".join(
         [
             # Without it, powershell -Command only reports the last command's status.
@@ -97,6 +113,7 @@ def install_script(config: NewspaperConfig) -> str:
                 "Sirve la web de Newspaper y mantiene el equipo despierto tras la edición y "
                 "mientras se lee desde el móvil",
             ),
+            notice_step,
             # The stopped server's python child lets go of the port a moment later, and a start
             # before that exits with 3. ponytail: up to 10 s; a manual server keeps it longer.
             f"for ($i = 0; $i -lt 40 -and (Get-NetTCPConnection -LocalPort {WEB_PORT} -State "
@@ -409,7 +426,7 @@ def uninstall_script() -> str:
         + [
             f"Unregister-ScheduledTask -TaskName {_quote(name)} -Confirm:$false "
             "-ErrorAction SilentlyContinue"
-            for name in (TASK_NAME, FETCH_TASK_NAME, WEB_TASK_NAME)
+            for name in (TASK_NAME, FETCH_TASK_NAME, WEB_TASK_NAME, NOTICE_TASK_NAME)
         ]
     )
 

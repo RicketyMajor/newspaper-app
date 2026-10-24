@@ -42,6 +42,28 @@ def test_only_the_edition_task_wakes_the_pc(config):
     assert "-WakeToRun" not in fetch
 
 
+def test_the_notice_task_wakes_the_pc_at_notice_time(config):
+    config.general.notice_time = "07:30"
+    script = schedule.install_script(config)
+    task = script.split("-TaskName 'Newspaper aviso'")[0].rsplit("$action", 1)[1]
+    assert "notify --pendiente" in task
+    assert "-Daily -At '07:30'" in script and "-WakeToRun" in task
+    assert "-ExecutionTimeLimit (New-TimeSpan -Minutes 10)" in task
+
+
+def test_without_notice_time_the_notice_task_goes_quietly(config):
+    script = schedule.install_script(config)
+    assert (
+        "Unregister-ScheduledTask -TaskName 'Newspaper aviso' -Confirm:$false "
+        "-ErrorAction SilentlyContinue"
+    ) in script
+    assert "notify --pendiente" not in script
+
+
+def test_uninstall_removes_the_notice_task():
+    assert "Unregister-ScheduledTask -TaskName 'Newspaper aviso'" in schedule.uninstall_script()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
 def test_keep_awake_holds_the_request_until_the_edition_ends(monkeypatch):
     import ctypes

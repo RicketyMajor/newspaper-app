@@ -315,6 +315,40 @@ def edition_notice(
         _set(engine, edition_id, (Edition.notified_at == now,), notified_at=None)
 
 
+PENDING_EVERY = 20  # seconds between tries of the notice task
+PENDING_TRIES = 27  # 9 minutes, inside the task's 10-minute limit
+
+
+def notice_pending(config: NewspaperConfig, day: date) -> bool:
+    """Today's edition still owes its automatic notice: being written, or ready (or failed)
+    with something to say, not yet notified nor opened, with someone to tell and a key."""
+    if not key_path(config).exists():  # edition_notice already said why
+        return False
+    with Session(open_db(config)) as s:
+        edition = queries.today_edition(s, day)
+        if edition is None or edition.notified_at or edition.opened_at or not _live(s):
+            return False
+        if edition.status == EditionStatus.generating:
+            return True
+        return edition_message(s, config, edition) is not None
+
+
+def pending_notice(
+    config: NewspaperConfig, day: date, log: Callable[[str], None], sleep=time.sleep
+) -> None:
+    """The notice task at notice_time (`notify --pendiente`): the automatic notice without the
+    hour guard, tried again while it is still owed, whoever failed: the Wi-Fi comes back a few
+    seconds after the wake, a fetch may have claimed it and found no network, the edition may
+    still be finishing."""
+    for attempt in range(PENDING_TRIES):
+        if attempt:
+            sleep(PENDING_EVERY)
+        edition_notice(config, day, log, guard=False)
+        if not notice_pending(config, day):
+            return
+    log("Aviso: no salió en 9 minutos; lo intentará el próximo fetch.")
+
+
 def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> str:
     """`newspaper notify`: today's notice, now, whatever was sent before. If nothing goes out
     the previous marks come back, so a failed test never makes `fetch` think the edition was

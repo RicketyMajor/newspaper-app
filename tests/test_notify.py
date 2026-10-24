@@ -584,3 +584,53 @@ def test_queued_pings_keep_the_earliest_time_inside_the_notice(config, engine, s
     assert ping_row(engine)[1] == datetime(2026, 10, 10, 10, 40)
     notify.record_ping(engine, DAY, "entregado", phone.id, at=before)
     assert ping_row(engine)[1] == notified  # never before the notice itself
+
+
+def test_the_notice_task_sends_once_and_stops(config, engine, seeded, push):
+    naps = []
+    notify.pending_notice(config, DAY, lambda _: None, sleep=naps.append)
+    assert len(push.messages) == 1 and naps == []
+
+
+def test_the_notice_task_tries_again_while_nothing_went_out(config, engine, seeded, push):
+    results = iter([notify.Sent(total=1), notify.Sent(accepted=1, total=1)])
+    push.during = lambda: setattr(push, "result", next(results))
+    naps = []
+    notify.pending_notice(config, DAY, lambda _: None, sleep=naps.append)
+    assert len(push.messages) == 2 and naps == [notify.PENDING_EVERY]
+
+
+def test_the_notice_task_waits_for_an_edition_still_being_written(config, engine, seeded, push):
+    set_edition(engine, status=EditionStatus.generating)
+    naps = []
+
+    def nap(seconds):
+        naps.append(seconds)
+        set_edition(engine, status=EditionStatus.ready)  # published at 07:31
+
+    notify.pending_notice(config, DAY, lambda _: None, sleep=nap)
+    assert len(push.messages) == 1 and len(naps) == 1
+
+
+def test_the_notice_task_gives_up_after_nine_minutes(config, engine, seeded, push):
+    push.result = notify.Sent(total=1)
+    naps, lines = [], []
+    notify.pending_notice(config, DAY, lines.append, sleep=naps.append)
+    assert len(push.messages) == notify.PENDING_TRIES == 27
+    assert sum(naps) == 26 * 20 and "9 minutos" in lines[-1]
+
+
+def test_the_notice_task_leaves_an_opened_edition_alone(config, engine, seeded, push):
+    set_edition(engine, opened_at=datetime(2026, 10, 10, 10, 0))
+    naps = []
+    notify.pending_notice(config, DAY, lambda _: None, sleep=naps.append)
+    assert push.messages == [] and naps == []
+
+
+def test_the_notice_task_goes_without_the_hour_guard(config, monkeypatch):
+    # The seeded day is long past, so the guard would let it through anyway: check the call.
+    calls = []
+    monkeypatch.setattr(notify, "edition_notice", lambda *args, **kw: calls.append(kw))
+    monkeypatch.setattr(notify, "notice_pending", lambda config_, day: False)
+    notify.pending_notice(config, DAY, lambda _: None, sleep=lambda _: None)
+    assert calls == [{"guard": False}]

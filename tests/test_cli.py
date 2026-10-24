@@ -174,6 +174,50 @@ def test_notify_prints_what_resend_says(tmp_path, monkeypatch):
     assert result.exit_code == 0 and "Aviso enviado a 1 de 1 suscripciones." in result.output
 
 
+def test_notify_pendiente_keeps_the_pc_awake_around_the_task(tmp_path, monkeypatch):
+    calls = []
+
+    @contextmanager
+    def keep_awake():
+        calls.append("on")
+        yield
+        calls.append("off")
+
+    monkeypatch.setattr("newspaper.schedule.keep_awake", keep_awake)
+    monkeypatch.setattr(
+        "newspaper.notify.pending_notice", lambda config, day, log: calls.append("aviso")
+    )
+    config = write_config(tmp_path, tmp_path / "newspaper.db")
+    result = CliRunner().invoke(main, ["--config", str(config), "notify", "--pendiente"])
+    assert result.exit_code == 0, result.output
+    assert calls == ["on", "aviso", "off"]
+
+
+def test_a_failing_notice_task_leaves_its_reason_in_the_log(tmp_path, monkeypatch):
+    # The task runs under pythonw: without the log, its traceback goes nowhere.
+    def boom(config, day, log):
+        raise RuntimeError("base bloqueada")
+
+    monkeypatch.setattr("newspaper.notify.pending_notice", boom)
+    config = write_config(tmp_path, tmp_path / "newspaper.db")
+    result = CliRunner().invoke(main, ["--config", str(config), "notify", "--pendiente"])
+    assert result.exit_code == 1
+    assert "Aviso: base bloqueada" in (tmp_path / "generate.log").read_text(encoding="utf-8")
+
+
+def test_install_and_uninstall_name_the_notice_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        schedule, "run_powershell", lambda script: SimpleNamespace(returncode=0, stderr="")
+    )
+    monkeypatch.setattr(schedule.sys, "platform", "win32")
+    config = write_config(tmp_path, tmp_path / "n.db", '\n[general]\nnotice_time = "07:30"\n')
+    installed = CliRunner().invoke(main, ["--config", str(config), "schedule", "install"])
+    removed = CliRunner().invoke(main, ["schedule", "uninstall"])
+    assert installed.exit_code == 0, installed.output
+    assert "Tarea 'Newspaper aviso' lista: cada día a las 07:30" in installed.output
+    assert "'Newspaper aviso'" in removed.output
+
+
 def test_status_counts_undrafted_notes(tmp_path, engine, seeded):
     with Session(engine) as s, s.begin():
         s.get(Note, seeded["world"]).drafted = False

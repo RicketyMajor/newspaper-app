@@ -134,14 +134,28 @@ def fetch(ctx: click.Context) -> None:
 
 
 @main.command(name="notify")
+@click.option(
+    "--pendiente",
+    is_flag=True,
+    help="El aviso automático pendiente, con reintentos (lo usa la tarea de la hora del aviso).",
+)
 @click.pass_context
-def notify_command(ctx: click.Context) -> None:
+def notify_command(ctx: click.Context, pendiente: bool) -> None:
     """Manda ahora el aviso de la edición de hoy (para probarlo o reintentarlo)."""
     from . import notify
 
     config = _load(ctx)
-    text = notify.resend(config, local_today(config), functools.partial(_log, config))
-    console.print(text, markup=False)
+    log = functools.partial(_log, config)
+    if pendiente:
+        # The task woke the PC: Windows puts it back to sleep in ~2 min unless asked.
+        with schedule.keep_awake():
+            try:
+                notify.pending_notice(config, local_today(config), log)
+            except Exception as e:  # under pythonw the traceback would go nowhere
+                log(f"Aviso: {str(e) or type(e).__name__}", style="red")
+                raise SystemExit(1) from e
+        return
+    console.print(notify.resend(config, local_today(config), log), markup=False)
 
 
 @main.command()
@@ -222,6 +236,11 @@ def install(ctx: click.Context) -> None:
         f"Tarea '{schedule.TASK_NAME}' lista: cada día a las {hour:02d}:00 (despierta el "
         "equipo si está suspendido), o en cuanto lo enciendas si estaba apagado."
     )
+    if config.general.notice_time:
+        console.print(
+            f"Tarea '{schedule.NOTICE_TASK_NAME}' lista: cada día a las "
+            f"{config.general.notice_time} despierta el equipo y manda el aviso."
+        )
     console.print(
         f"Tarea '{schedule.FETCH_TASK_NAME}' lista: descarga las fuentes cada "
         f"{schedule.FETCH_EVERY_MINUTES} minutos."
@@ -239,8 +258,8 @@ def uninstall() -> None:
     """Elimina las tareas programadas."""
     _powershell(schedule.uninstall_script())
     console.print(
-        f"Tareas '{schedule.TASK_NAME}', '{schedule.FETCH_TASK_NAME}' y "
-        f"'{schedule.WEB_TASK_NAME}' eliminadas."
+        f"Tareas '{schedule.TASK_NAME}', '{schedule.FETCH_TASK_NAME}', "
+        f"'{schedule.WEB_TASK_NAME}' y '{schedule.NOTICE_TASK_NAME}' eliminadas."
     )
 
 
