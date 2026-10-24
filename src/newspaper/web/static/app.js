@@ -1,3 +1,11 @@
+// Reading without the PC (#20a): the worker served a saved copy of this page.
+const copy = document.body.hasAttribute("data-sin-pc");
+// One registration for the whole app: the copy and the queue (tailnet only) and the notices.
+const worker = "serviceWorker" in navigator && isSecureContext
+  ? navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready)
+  : null;
+worker?.catch(() => {});  // a refused worker: the app reads live as before
+
 // Poll until today's edition is ready (it may be starting in the background); announce it.
 const shown = document.body.dataset.today;
 if (shown !== "ready") {
@@ -19,6 +27,10 @@ document.addEventListener("submit", async (event) => {
   const form = event.target.closest(".toggles form");
   if (!form) return;
   event.preventDefault();
+  if (copy) {  // marks without the PC are #20b
+    live.textContent = "Las marcas esperan al PC.";
+    return;
+  }
   const button = form.querySelector("button");
   // Send the state the button promises, not a toggle: a mark landing meanwhile (the automatic
   // one at the sources) can't turn the press into its opposite.
@@ -55,7 +67,7 @@ document.addEventListener("click", (event) => {
 // Opening it doesn't. Touching "Leída" by hand wins for the rest of the visit.
 const note = document.querySelector("article.note");
 const readForm = note?.querySelector(':scope > .toggles form[action$="flag=read"]');
-if (readForm && "IntersectionObserver" in window) {
+if (readForm && "IntersectionObserver" in window && !copy) {
   let touched = false;
   readForm.addEventListener("submit", () => (touched = true));
   const mark = new IntersectionObserver(async (entries) => {
@@ -164,7 +176,7 @@ function setUpNotices(line) {
     const bytes = new Uint8Array(buffer || []);
     return bytes.length === keyBytes.length && bytes.every((b, i) => b === keyBytes[i]);
   };
-  const registration = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+  const registration = worker;
   // Every user awaits it and handles a failure; this keeps one nobody awaited yet (permission
   // denied, a browser set to refuse workers) out of the console as an unhandled rejection.
   registration.catch(() => {});
@@ -265,19 +277,126 @@ function setUpNotices(line) {
   render().then(check).catch(() => {}).finally(render);
 }
 
-// Back in the app: it resumes yesterday's page without asking for it. On the latest edition's
-// pages (data-live), a newer edition reloads Today, and a note offers it without interrupting.
+// Back in the app: it resumes the page it left without asking for it. On the latest edition's
+// pages (data-live), the worker checks the PC (and sends the queue, and refreshes the copy): a
+// newer edition reloads a live Today and offers itself elsewhere; with the PC away, Today says
+// so. A copy never reloads by itself.
 const liveDay = document.body.dataset.live;
 if (liveDay) {
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState !== "visible") return;
-    const res = await fetch("/estado").catch(() => null);
-    if (!res || !res.ok) return;
-    const { latest } = await res.json();
+    const answer = await ask();
+    if (!answer) return;
+    const today = document.querySelector(".rail");
+    if (!answer.pc) {
+      if (today) showSinPc();
+      return;
+    }
+    if (sinPc && !copy) sinPc.hidden = true;  // the PC is back: a live Today's marks don't wait
     // ISO dates (YYYY-MM-DD) compare as text. Later, not just different: a --force under way
     // briefly says yesterday or null.
-    if (!latest || latest <= liveDay) return;
-    if (document.querySelector(".rail")) location.replace("/");  // a front page: Today itself
+    if (!answer.servidor || answer.servidor <= liveDay) return;
+    if (today && !copy) location.replace("/");  // a live front page: Today itself
     else document.querySelector(".banner.ready").hidden = false;
   });
+}
+
+// The worker's view of the PC; without a worker, or with no answer in 5 s, the old check.
+async function ask() {
+  const control = navigator.serviceWorker?.controller;
+  if (control) {
+    const answer = await new Promise((resolve) => {
+      const { port1, port2 } = new MessageChannel();
+      const timer = setTimeout(() => resolve(null), 5000);
+      port1.onmessage = (event) => { clearTimeout(timer); resolve(event.data); };
+      control.postMessage("sincronizar", [port2]);
+    });
+    if (answer) return answer;
+  }
+  const res = await fetch("/estado").catch(() => null);
+  if (!res || !res.ok) return null;
+  return { pc: true, servidor: (await res.json()).latest };
+}
+
+// Without the PC (#20a): the line at the foot of Today, and the copy's marks as of the last
+// sync (the base), with the buttons waiting for the PC.
+const sinPc = document.querySelector(".sin-pc");
+function showSinPc() {
+  if (!sinPc) return;
+  const day = document.body.dataset.copia || document.querySelector(".rail")?.dataset.day;
+  const today = new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local time
+  const notice = sinPc.dataset.aviso;
+  let text = "Sin el PC: las marcas esperan a que vuelva.";
+  if (day && day !== today) {
+    const long = new Date(`${day}T12:00`).toLocaleDateString("es", { day: "numeric", month: "long" });
+    const before = notice && new Date().toTimeString().slice(0, 5) < notice;
+    text = `Es la edición del ${long}. ` + (before
+      ? `La de hoy llega con el aviso de las ${notice}.`
+      : "La de hoy se guarda cuando el teléfono alcance al PC.");
+  }
+  sinPc.textContent = text;
+  sinPc.hidden = false;
+}
+
+function applyMarks(base) {
+  const has = (kind, id, letter) => (base[kind]?.[id] || "").includes(letter);
+  const letters = { read: "r", favorite: "f", saved: "s" };
+  for (const form of document.querySelectorAll(".toggles form")) {
+    const [, kind, id, flag] =
+      form.getAttribute("action").match(/^\/([na])\/(\d+)\/estado\?flag=(\w+)/) || [];
+    if (!kind) continue;
+    const on = has(kind, id, letters[flag]);
+    const button = form.querySelector("button");
+    button.setAttribute("aria-pressed", String(on));
+    button.setAttribute("aria-disabled", "true");
+    if (kind === "a" && flag === "read") form.closest("li")?.classList.toggle("is-read", on);
+  }
+  note?.querySelector(":scope > .toggles")
+    ?.insertAdjacentHTML("afterend", '<p class="espera">Las marcas esperan al PC.</p>');
+  // Today's cards and Guardado's lines, read or not as the base says, with the check the server
+  // draws (read_mark): the copy is usually saved at the notice, before any reading. A read card
+  // loses "Sigue aquí", which doesn't move to the next one.
+  for (const link of document.querySelectorAll('a[href^="/n/"]')) {
+    const card = link.closest(".big, .line");
+    if (!card) continue;
+    const on = has("n", link.getAttribute("href").slice(3), "r");
+    card.classList.toggle("done", on);
+    const title = card === link ? link.firstElementChild : link;  // a line's headline is its span
+    if (!on) title.querySelectorAll(".check, .check + .sr-only").forEach((mark) => mark.remove());
+    else if (!title.querySelector(".check")) {
+      title.insertAdjacentHTML("afterbegin", '<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>');
+    }
+    const kicker = card.querySelector(".k");
+    if (on && kicker?.firstChild?.textContent.startsWith("Sigue aquí")) kicker.firstChild.textContent = "";
+  }
+  const core = (document.body.dataset.nucleo || "").split(" ").filter(Boolean);
+  const read = core.filter((id) => has("n", id, "r"));
+  const rail = document.querySelector(".rail");
+  if (rail && core.length) {  // the sun and the line above it
+    rail.dataset.read = read.length;
+    rail.style.setProperty("--sol", read.length / core.length);
+    try { localStorage["alba:" + rail.dataset.day] = read.length; } catch {}
+    const prog = document.querySelector(".prog");
+    prog.textContent = `Lo esencial: ${read.length} de ${core.length}.`;
+    if (read.length === core.length) {
+      const link = document.createElement("a");
+      link.href = `/fin/${rail.dataset.day}`;
+      link.textContent = "Pleno día.";
+      prog.append(" ", link);
+    } else {
+      prog.append(" El sol sube con cada una.");
+    }
+  }
+  const lead = document.querySelector(".noon-wrap .lead");
+  if (lead && core.length && document.querySelector(".noon-wrap .left")) {  // Pleno día
+    const left = core.length - read.length;
+    lead.textContent = left
+      ? `Te faltan ${left} de las ${core.length}\u00a0notas esenciales.`
+      : "Terminaste lo esencial.";
+  }
+}
+
+if (copy) {
+  showSinPc();
+  applyMarks(JSON.parse(document.body.dataset.marcas || "{}"));
 }

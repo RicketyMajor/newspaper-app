@@ -471,6 +471,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 f"/static/app.js?v={v}",
                 "/static/icon.svg",
                 "/manifest.webmanifest",
+                # The manifest's icons, as it names them: Chrome asks for one on every page, and
+                # without the PC it would wait out the 4 s.
+                "/static/icon-192.png",
+                "/static/icon-512.png",
             ]
             + [f"/static/fonts/{p.name}" for p in sorted((STATIC / "fonts").glob("*.woff2"))],
             "originals": {str(a.id): a.url for a in sources.values()},

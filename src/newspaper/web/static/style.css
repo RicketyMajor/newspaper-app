@@ -501,9 +501,14 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
   text-align: center;
 }
 
-/* The daily notice: one quiet line at the foot of Today, not a banner. */
-.aviso { max-width: var(--column); margin: 1.5rem auto 0; padding: 0 20px; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
-body.sky .aviso { padding-right: 52px; }  /* clear of the rail */
+/* The daily notice and reading without the PC (#20a): quiet lines at the foot of Today, not
+   banners. A copy's marks wait for the PC: the buttons show the saved state, dimmed. */
+.aviso, .sin-pc { max-width: var(--column); margin: 1.5rem auto 0; padding: 0 20px; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
+body.sky .aviso, body.sky .sin-pc { padding-right: 52px; }  /* clear of the rail */
+.toggles button[aria-disabled="true"] { opacity: 0.7; cursor: not-allowed; }  /* 0.7: still AA */
+.espera { margin: 0.5rem 0 0; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
+.note > .toggles:has(+ .espera) { margin-bottom: 0; }
+.note > .espera { margin: 10px 14px 30px; text-align: center; }  /* under the row of pills */
 .empty + .aviso { text-align: center; }  /* under the empty page's centered sun, like the colophon */
 .aviso button {
   min-height: 44px;
