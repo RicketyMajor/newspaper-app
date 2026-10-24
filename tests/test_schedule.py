@@ -266,13 +266,18 @@ WOKE = 1_000_000 * 10_000  # 1000 s after boot, in LastWakeTime's 100 ns units
 LATER = 1_500_000 * 10_000  # the next wake, 500 s on
 
 
-def used_at_sleeps(monkeypatch, inputs, wakes=(WOKE,), needed=(True, True, True, False)):
-    """What keep_awake tells each `sleep` about use, for these last inputs (tick, input32)."""
+def used_at_sleeps(
+    monkeypatch, inputs, wakes=(WOKE,), needed=(True, True, True, False), at_start=False
+):
+    """What keep_awake tells each `sleep` about use, for these last inputs (tick, input32): in
+    wakes after the one it started in (the web up since the night before), unless `at_start`."""
     told = []
 
     def sleep(wake, fresh, used, still_needed, visited):
         told.append((wake, used))
 
+    if not at_start:  # the night before: a wake 500 s after boot, its input unknown, no hold
+        wakes, inputs, needed = (500_000 * 10_000, *wakes), [(0, 0), *inputs], (False, *needed)
     hold_and_sleep(monkeypatch, list(needed), list(wakes), sleep=sleep, inputs=inputs)
     return told
 
@@ -310,12 +315,28 @@ def test_a_new_wake_starts_with_no_use(monkeypatch):
     inputs = [(1_300_000, 1_200_000), (1_400_000, 1_290_000), (1_600_000, 1_550_000)]
     told = used_at_sleeps(monkeypatch, inputs, wakes=(WOKE, WOKE, LATER))
     assert told == [(LATER, False)]
+    # One phantom in each wake (+200 s, then +400 s): two bursts of two wakes are no use either.
+    inputs = [(1_300_000, 1_200_000), (1_300_000, 1_200_000), (1_950_000, 1_900_000)]
+    told = used_at_sleeps(monkeypatch, inputs, wakes=(WOKE, WOKE, LATER))
+    assert told == [(LATER, False)]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
 def test_an_input_it_cannot_read_counts_as_use(monkeypatch):
     told = used_at_sleeps(monkeypatch, [OSError("GetLastInputInfo")], needed=(True, False))
     assert told == [(WOKE, True)]  # any doubt keeps the PC awake: only #22's rule is left
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_wake_under_way_at_start_counts_an_unseen_late_input_as_use(monkeypatch):
+    # The server restarted mid-wake (schedule install): an input past the grace before it began
+    # may have been someone working, unseen. One within the grace is still the phantom, and a
+    # phantom seen afterwards is one burst again.
+    late = [(1_300_000, 1_200_000)]
+    assert used_at_sleeps(monkeypatch, late, needed=(True, False), at_start=True) == [(WOKE, True)]
+    early = [(1_300_000, 1_001_000), (1_400_000, 1_200_000)]  # +1 s at start, then +200 s
+    told = used_at_sleeps(monkeypatch, early, needed=(True, True, False), at_start=True)
+    assert told == [(WOKE, False)]
 
 
 def test_input_after_wake_counts_from_the_last_wake():

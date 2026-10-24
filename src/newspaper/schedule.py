@@ -353,13 +353,14 @@ def keep_awake(
         seen_in = None  # the wake that `first` and `used` describe
         first = None  # its first input past the grace
         used = False
+        unseen = False  # its inputs so far went unseen: the server started (or restarted) in it
         while not done.is_set():
             recheck.clear()  # before asking: a recheck from now on is answered
             awake, sure = ask()
             if sleep is not None:
                 wake = woke()
-                if wake is not None and wake != seen_in:
-                    seen_in, first, used = wake, None, False
+                if wake != seen_in:  # a wake it couldn't read is unseen too: its next is a doubt
+                    seen_in, first, used, unseen = wake, None, False, seen_in is None
                 if wake is not None and not used:
                     try:
                         after = input_after_wake(*_input_tick(), wake)
@@ -369,7 +370,8 @@ def keep_awake(
                     else:
                         if after is not None and after > SCHEDULED_WAKE_GRACE:
                             first = after if first is None else first
-                            used = abs(after - first) > USE_GAP
+                            used = unseen or abs(after - first) > USE_GAP  # unseen: maybe use
+                        unseen = False
                 if awake and sure:
                     if held_in != wake:
                         fresh = free_in == wake
