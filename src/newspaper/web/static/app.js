@@ -5,6 +5,15 @@ const worker = "serviceWorker" in navigator && isSecureContext
   ? navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready)
   : null;
 worker?.catch(() => {});  // a refused worker: the app reads live as before
+// The first visit loads before the worker takes over; once it does, it saves the copy (and
+// sends the queue) without waiting for another page.
+if (worker && !navigator.serviceWorker.controller) {
+  navigator.serviceWorker.addEventListener("controllerchange", ask, { once: true });
+}
+// The installed app asks to keep the copy under storage pressure; the answer is only logged.
+if (matchMedia("(display-mode: standalone)").matches) {
+  navigator.storage?.persist?.().then((kept) => console.info("Newspaper: almacenamiento persistente:", kept), () => {});
+}
 
 // Poll until today's edition is ready (it may be starting in the background); announce it.
 const shown = document.body.dataset.today;
