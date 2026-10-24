@@ -1,6 +1,8 @@
 """Local web reader: FastAPI + Jinja2, server-rendered, no accounts."""
 
+import base64
 import functools
+import json
 import logging
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -53,6 +55,21 @@ def _push(config: NewspaperConfig):
     except Exception:
         log.warning("Avisos desactivados: no se pudo preparar la clave", exc_info=True)
         return None
+
+
+def service_worker_script(name: str) -> str:
+    """sw.js with the edition's name, icon and badge inlined: showing a notice fetches nothing
+    from the PC, which may be out of reach over the tailnet. Served even when the notices are
+    off: the worker also keeps the copy for reading without the PC (#20a)."""
+
+    def png(file: str) -> str:
+        return "data:image/png;base64," + base64.b64encode((STATIC / file).read_bytes()).decode()
+
+    script = (HERE / "sw.js").read_text(encoding="utf-8")
+    slots = {"__NAME__": name, "__ICON__": png("icon-192.png"), "__BADGE__": png("badge.png")}
+    for slot, value in slots.items():
+        script = script.replace(slot, json.dumps(value))
+    return script
 
 
 def create_app(config: NewspaperConfig) -> FastAPI:
@@ -127,7 +144,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
-        banner = today_banner(today.status, today.error) if today else None
+        # A copy saved by the phone's worker (#20a) must not freeze the day's passing state.
+        copy = request.headers.get("x-sin-pc") == "1"
+        banner = today_banner(today.status, today.error) if today and not copy else None
+        today_status = "ready" if copy else (today.status.value if today else None)
         latest = queries.latest_ready_edition(s)
         edition = context.get("edition")
         # The masthead's date follows the page's edition, else the latest.
@@ -141,19 +161,26 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             {
                 "paper": config.general.edition_name,
                 "banner": banner,
-                "today_status": today.status.value if today else None,
+                "today_status": today_status,
                 "paper_edition": paper_edition,
                 "live_day": edition.edition_date if live else None,
+                "notice_time": config.general.notice_time,
                 **context,
             },
         )
 
     def opened(response: HTMLResponse, request: Request, *objs) -> HTMLResponse:
         """Record the first opening of editions and notes. Only real navigations count (not
-        curl, a check or the tests), and only the first: a revisit writes nothing. It runs after
-        the page is sent, so the writer lock (generate, fetch) never delays the page."""
+        curl, a check, the tests nor the worker saving a copy), and only the first: a revisit
+        writes nothing. The worker's navigation preload is the browser's own navigation (#20a).
+        It runs after the page is sent, so the writer lock (generate, fetch) never delays the
+        page."""
         firsts = [(type(obj), obj.id) for obj in objs if obj.opened_at is None]
-        if firsts and request.headers.get("sec-fetch-dest") == "document":
+        navigation = (
+            request.headers.get("sec-fetch-dest") == "document"
+            or "service-worker-navigation-preload" in request.headers
+        )
+        if firsts and navigation:
             response.background = BackgroundTask(record_openings, firsts)
         return response
 
@@ -203,6 +230,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             sections=sections, next_core=next((n for n in core if not n.is_read), None),
             core_read=sum(n.is_read for n in core), core_total=len(core),
             core_minutes=sum(n.read_minutes for n in core), notice_key=key,
+            core_ids=[n.id for n in core],
         )  # fmt: skip
         return opened(response, request, edition)
 
@@ -255,6 +283,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             next_note=next_note, next_label=label(i + 1),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
             tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
+            core_ids=[n.id for n in core],
         )  # fmt: skip
         # Its edition too: a note reached from search or a bookmark opened it, never Today.
         return opened(response, request, found, found.edition)
@@ -274,7 +303,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             core_minutes=sum(n.read_minutes for n in core), bands=bands, rest_total=len(rest),
             core_sections=len({n.section for n in core}),
             first_rest=rest[0] if rest else None, core_left=sum(not n.is_read for n in core),
-            next_hour=f"{config.general.edition_hour:02d}:15",
+            next_hour=f"{config.general.edition_hour:02d}:15", core_ids=[n.id for n in core],
         )  # fmt: skip
 
     @app.get("/a/{article_id}")
@@ -344,6 +373,55 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             "latest": latest.edition_date.isoformat() if latest else None,
         }
 
+    @app.get("/sin-pc")
+    def offline_copy(s: DB):
+        """What the phone's worker saves to read without the PC (#20a): the latest edition and
+        Guardado. The revision changes with what the saved HTML shows, except the reading
+        marks, which travel apart as the base."""
+        edition = queries.latest_ready_edition(s)
+        if edition is None:
+            raise HTTPException(404, "Todavía no hay ediciones listas")
+        core, rest = queries.reading_order(edition.notes)
+        flagged_notes, flagged_articles = queries.flagged(s, "favorite", "saved")
+        older = [n for n in flagged_notes if n.edition_id != edition.id]
+        notes = core + rest + older
+        sources = {a.id: a for n in notes for a in n.articles} | {a.id: a for a in flagged_articles}
+        day = edition.edition_date.isoformat()
+        v = templates.env.globals["static_v"]
+
+        def members(attr: str) -> str:
+            ids = [f"n{n.id}" for n in flagged_notes if getattr(n, attr)]
+            ids += [f"a{a.id}" for a in flagged_articles if getattr(a, attr)]
+            return ",".join(sorted(ids))
+
+        def marks(obj) -> str:
+            pairs = (("r", obj.is_read), ("f", obj.is_favorite), ("s", obj.is_saved))
+            return "".join(letter for letter, on in pairs if on)
+
+        finished = edition.finished_at.isoformat() if edition.finished_at else ""
+        stamp = f"{edition.id}|{finished}"
+        return {
+            "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}",
+            "edition": stamp,
+            "day": day,
+            "pages": [f"/e/{day}"]
+            + [f"/n/{n.id}" for n in core + rest]
+            + [f"/fin/{day}", "/guardado", "/guardado?f=favoritos", "/guardado?f=guardados"]
+            + [f"/n/{n.id}" for n in older],
+            "static": [
+                f"/static/style.css?v={v}",
+                f"/static/app.js?v={v}",
+                "/static/icon.svg",
+                "/manifest.webmanifest",
+            ]
+            + [f"/static/fonts/{p.name}" for p in sorted((STATIC / "fonts").glob("*.woff2"))],
+            "originals": {str(a.id): a.url for a in sources.values()},
+            "base": {
+                "n": {str(n.id): marks(n) for n in notes if marks(n)},
+                "a": {str(a.id): marks(a) for a in sources.values() if marks(a)},
+            },
+        }
+
     @app.get("/manifest.webmanifest")
     def manifest():
         # Chrome on Android installs the paper as an app from this (HTTPS by tailscale serve).
@@ -366,16 +444,16 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             media_type="application/manifest+json",
         )
 
+    worker = service_worker_script(config.general.edition_name)
+
+    @app.get("/sw.js")
+    def service_worker():
+        # Explicit type: Windows' registry can map .js to text/plain, and a service worker must
+        # be JavaScript.
+        return Response(worker, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
     if push:
         notify, vapid, _ = push
-        worker = notify.service_worker(HERE / "sw.js", STATIC, config.general.edition_name)
-
-        @app.get("/sw.js")
-        def service_worker():
-            # Explicit type: Windows' registry can map .js to text/plain, and a service worker
-            # must be JavaScript.
-            headers = {"Cache-Control": "no-cache"}
-            return Response(worker, media_type="text/javascript", headers=headers)
 
         @app.post("/aviso/alta")
         def subscribe(request: Request, alta: notify.Alta):

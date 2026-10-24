@@ -46,5 +46,6 @@
   {% endif %}
 </section>
 {% endfor %}
+<p class="sin-pc" role="status"{% if notice_time %} data-aviso="{{ notice_time }}"{% endif %} hidden></p>
 {% if notice_key %}<p class="aviso" data-key="{{ notice_key }}" data-name="{{ paper }}" hidden></p>{% endif %}
 {% endblock %}

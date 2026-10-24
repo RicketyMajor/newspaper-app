@@ -207,7 +207,7 @@ def test_a_broken_key_turns_the_notices_off_not_the_reader(config, seeded, damag
 
     assert client.get("/").status_code == 200
     assert client.post("/aviso/alta", json=body()).status_code == 404
-    assert client.get("/sw.js").status_code == 404
+    assert client.get("/sw.js").status_code == 200  # it also keeps the copy (#20a)
 
 
 def openings(engine, seeded):

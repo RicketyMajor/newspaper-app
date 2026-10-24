@@ -508,17 +508,3 @@ def record_ping(
             )
             conn.execute(stmt.values({column: when}))
     return True
-
-
-def service_worker(source: Path, static: Path, name: str) -> str:
-    """sw.js with the edition's name, icon and badge inlined: showing a notice fetches nothing
-    from the PC, which may be out of reach over the tailnet."""
-
-    def png(file: str) -> str:
-        return "data:image/png;base64," + base64.b64encode((static / file).read_bytes()).decode()
-
-    script = source.read_text(encoding="utf-8")
-    slots = {"__NAME__": name, "__ICON__": png("icon-192.png"), "__BADGE__": png("badge.png")}
-    for slot, value in slots.items():
-        script = script.replace(slot, json.dumps(value))
-    return script
