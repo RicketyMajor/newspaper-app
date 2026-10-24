@@ -411,6 +411,13 @@ def test_generate_and_fetch_wait_until_after_the_notice_time(config, engine, see
     assert len(push.messages) == 1
 
 
+def test_an_edition_done_past_midnight_is_held_to_its_own_day(config, engine, seeded, push):
+    # The 10th's edition at 23:00, notice at 23:55, done at 00:10 on the 11th: its time is past.
+    config.general.notice_time = "23:55"
+    notify.edition_notice(config, DAY, print, now=datetime(2026, 10, 11, 3, 10, tzinfo=UTC))
+    assert len(push.messages) == 1
+
+
 def test_the_notice_task_skips_the_hour_guard(config, engine, seeded, push):
     config.general.notice_time = "07:30"
     notify.edition_notice(config, DAY, print, guard=False, now=EARLY)

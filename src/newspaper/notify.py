@@ -275,6 +275,8 @@ def edition_notice(
     `guard=False` from the notice task (`notify --pendiente`): with notice_time set, the
     others wait until it plus NOTICE_GRACE."""
     at = notice_at(config, now)
+    if at:  # the edition's own day: one finished past midnight is late, never tomorrow's
+        at = at.replace(year=day.year, month=day.month, day=day.day)
     if guard and at and (now or datetime.now(UTC)) < at + NOTICE_GRACE:
         return
     engine = open_db(config)
