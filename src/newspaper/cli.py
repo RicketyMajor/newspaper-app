@@ -176,6 +176,7 @@ def web(ctx: click.Context, port: int, no_browser: bool) -> None:
         format="%(asctime)s %(name)s: %(message)s",
         force=True,
     )
+    logging.getLogger("newspaper.schedule").setLevel(logging.INFO)  # each sleep decision (#22)
     try:
         _recover(config)
         serve(config, port=port, open_browser=not no_browser)

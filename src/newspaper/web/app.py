@@ -1,7 +1,8 @@
 """Local web reader: FastAPI + Jinja2, server-rendered, no accounts."""
 
+import functools
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -405,7 +406,9 @@ def serve(config: NewspaperConfig, port: int, open_browser: bool = True) -> None
     print(f"Newspaper en {url} (Ctrl+C para salir)")
     app = create_app(config)
     # After the 06:00 wake Windows sleeps again unless asked: the phone needs it awake for the
-    # notice and while reading, not all day.
-    with schedule.keep_awake(app.state.awake) as app.state.recheck:
+    # notice and while reading, not all day. And when that ends with nobody at the PC, the web
+    # sleeps it: Windows may take the 06:00 wake for someone there (#22).
+    sleep = functools.partial(schedule.sleep_if_unattended, [time(config.general.edition_hour)])
+    with schedule.keep_awake(app.state.awake, sleep) as app.state.recheck:
         # log_config=None: uvicorn's default calls sys.stdout.isatty(); pythonw has None.
         uvicorn.run(app, host="127.0.0.1", port=port, log_config=None)

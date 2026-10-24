@@ -1,7 +1,8 @@
+import logging
 import os
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -135,6 +136,227 @@ def test_keep_awake_does_nothing_off_windows(monkeypatch):
     monkeypatch.setattr(schedule.sys, "platform", "linux")
     with schedule.keep_awake():
         pass
+
+
+HOLD, FREE = schedule.ES_CONTINUOUS | schedule.ES_SYSTEM_REQUIRED, schedule.ES_CONTINUOUS
+
+
+def answering(values):
+    """Each call returns the next value (raising it if it's an exception); the last repeats."""
+    values = list(values)
+
+    def answer():
+        value = values.pop(0) if len(values) > 1 else values[0]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    return answer
+
+
+def hold_and_sleep(monkeypatch, needed, wakes, sleep=None):
+    """keep_awake with a recording `sleep`: what `needed` and LastWakeTime answer in turn; the
+    requests and the sleeps, in order."""
+    import ctypes
+    import time
+
+    events = []
+    monkeypatch.setattr(
+        ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=events.append)
+    )
+    monkeypatch.setattr(schedule, "RENEW_SECONDS", 0.01)
+    monkeypatch.setattr(schedule, "last_wake", answering(wakes))
+
+    def record(wake, fresh, still_needed):
+        events.append(("sleep", wake, fresh, still_needed()))
+
+    with schedule.keep_awake(answering(needed), sleep=sleep or record):
+        time.sleep(0.1)
+    assert events[-1] == FREE
+    return events
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_the_end_of_a_hold_may_sleep_the_pc_while_still_holding(monkeypatch):
+    # Holding when it calls: an unattended PC would otherwise sleep the second it lets go.
+    events = hold_and_sleep(monkeypatch, [False, True, False], [5])
+    assert events[:4] == [FREE, HOLD, ("sleep", 5, True, False), FREE]
+    assert [e for e in events if e not in (HOLD, FREE)] == [("sleep", 5, True, False)]  # once
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_hold_already_there_at_the_wake_is_not_fresh(monkeypatch):
+    # 06:00: generate may claim before the first renewal (it's ours, that's fine). Any other wake:
+    # a visit window still open from before a manual sleep isn't a reason of this wake.
+    events = hold_and_sleep(monkeypatch, [True, True, False], [1, 2])
+    assert [e for e in events if e not in (HOLD, FREE)] == [("sleep", 2, False, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_hold_from_before_a_sleep_never_sleeps_the_next_wake(monkeypatch):
+    # A visit at night, the PC slept by hand: at 06:00 the PC must not sleep before generate runs.
+    events = hold_and_sleep(monkeypatch, [True, False], [1, 2])
+    assert not [e for e in events if e not in (HOLD, FREE)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_no_hold_no_sleep(monkeypatch):
+    assert set(hold_and_sleep(monkeypatch, [False], [5])) == {FREE}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_holding_because_it_cannot_tell_never_sleeps_the_pc(monkeypatch):
+    events = hold_and_sleep(monkeypatch, [OSError("database is locked"), False], [5])
+    assert events[:2] == [HOLD, FREE] and set(events) == {HOLD, FREE}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_reason_back_while_deciding_keeps_the_hold(monkeypatch):
+    # A visit lands while it decides: the stale "no" is never applied.
+    events = hold_and_sleep(monkeypatch, [True, False, True], [5])
+    assert events[:3] == [HOLD, ("sleep", 5, False, True), HOLD]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_an_unknown_wake_only_turns_off_the_sleeping(monkeypatch):
+    events = hold_and_sleep(monkeypatch, [True, False, True], [OSError("CallNtPowerInformation")])
+    assert events[:3] == [HOLD, FREE, HOLD] and set(events) == {HOLD, FREE}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_a_failed_sleep_keeps_renewing(monkeypatch):
+    def sleep(wake, fresh, still_needed):
+        raise OSError("SetSuspendState")
+
+    events = hold_and_sleep(monkeypatch, [True, False, True], [5], sleep=sleep)
+    assert events[:3] == [HOLD, HOLD, HOLD]  # asked again after the failure: a reason is back
+
+
+WOKE = 1_000_000 * 10_000  # 1000 s after boot, in LastWakeTime's 100 ns units
+
+
+def test_input_after_wake_counts_from_the_last_wake():
+    assert schedule.input_after_wake(1_100_000, 1_001_000, WOKE) == timedelta(seconds=1)
+    assert schedule.input_after_wake(1_100_000, 900_000, WOKE) == timedelta(seconds=-100)
+
+
+def test_input_after_wake_survives_the_32_bit_wrap():
+    # GetLastInputInfo keeps 32 bits: 49.7 days of uptime wrap it, the wake can be before that.
+    tick, woke = 2**32 + 5_000, (2**32 - 10_000) * 10_000
+    assert schedule.input_after_wake(tick, 2_000, woke) == timedelta(seconds=12)
+
+
+def test_an_input_stamped_after_the_tick_counts_as_now():
+    # SendInput stamps its own time: it must not read as 49.7 days ago, i.e. before the wake.
+    assert schedule.input_after_wake(1_100_000, 1_100_500, WOKE) == timedelta(seconds=100)
+
+
+def test_a_doubtful_wake_is_unknown():
+    assert schedule.input_after_wake(1_100_000, 1_000_000, 0) is None  # no sleep since boot
+    assert schedule.input_after_wake(1_100_000, 1_000_000, 1_200_000 * 10_000) is None  # future
+
+
+SIX = [time(6)]
+
+
+def test_our_wake_forgives_the_phantom_input_of_its_first_minutes():
+    # 2026-10-23: woke 06:02:32, a key report at +1 s and the session unlocked itself at +67 s.
+    woke = datetime(2026, 10, 23, 6, 2, 32)
+    grace = schedule.wake_grace(woke, woke + timedelta(minutes=53), SIX)
+    assert grace == schedule.SCHEDULED_WAKE_GRACE >= timedelta(seconds=67)
+
+
+def test_any_other_wake_forgives_only_the_key_that_woke_it():
+    late, early = datetime(2026, 10, 23, 6, 12), datetime(2026, 10, 23, 5, 59)
+    for woke in (datetime(2026, 10, 23, 23, 17, 31), late, early):
+        assert schedule.wake_grace(woke, woke + timedelta(hours=1), SIX) == schedule.WAKE_GRACE
+    # yesterday's 06:00, never slept since: today's job may be starting, it's no longer ours
+    woke = datetime(2026, 10, 23, 6, 2, 32)
+    assert schedule.wake_grace(woke, woke + timedelta(days=1), SIX) == schedule.WAKE_GRACE
+
+
+AFTER_WAKE = datetime(2026, 10, 23, 23, 20)  # not one of our wakes: the 15 s grace
+
+
+def sleep_if_unattended(monkeypatch, caplog, snapshot, *, needed=False, console=True, **kw):
+    """`sleep_if_unattended` at AFTER_WAKE (unless `now`), fresh unless told; True if it slept."""
+    slept, order = [], []
+    monkeypatch.setattr(schedule, "suspend", lambda: slept.append(1))
+    monkeypatch.setattr(schedule, "_console_session", lambda: console)
+    monkeypatch.setattr(schedule, "_snapshot", lambda: order.append("snapshot") or snapshot)
+    monkeypatch.setattr(schedule, "_power_info", {14: WOKE, 15: WOKE // 2, 16: 0x80000001}.get)
+    monkeypatch.setattr(schedule, "_tick", lambda: 1_100_000)
+    caplog.set_level(logging.INFO, logger="newspaper.schedule")
+
+    def still_needed():
+        order.append("needed")
+        return needed
+
+    now = kw.get("now", AFTER_WAKE)
+    schedule.sleep_if_unattended(
+        kw.get("scheduled", SIX), WOKE, kw.get("fresh", True), still_needed, lambda: now
+    )
+    assert order[0] == "needed"  # the slow question first: the snapshot is the last thing read
+    return bool(slept)
+
+
+def test_sleeps_the_pc_nobody_touched_since_it_woke(monkeypatch, caplog):
+    assert sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE))
+    assert (
+        "despertó 23:18:20, última entrada +1 s (margen 15 s), estado 0x80000001: lo duermo"
+        in caplog.text
+    )
+    assert "Volvió: durmió de 23:10:00 a 23:18:20" in caplog.text  # proof it slept, and how long
+
+
+def test_someone_at_the_pc_keeps_it_awake(monkeypatch, caplog):
+    assert not sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_060_000, WOKE))
+    assert "última entrada +60 s (margen 15 s), estado 0x80000001: hay alguien" in caplog.text
+
+
+def test_our_wake_sleeps_even_with_a_hold_already_there(monkeypatch, caplog):
+    # 06:00: generate may claim the edition before the web's first renewal after the wake.
+    now, tick = datetime(2026, 10, 23, 6, 55), 1_000_000 + 3_148_000  # woke 06:02:32
+    snapshot = (tick, 1_067_000, WOKE)  # the session unlocked itself at +67 s
+    assert sleep_if_unattended(monkeypatch, caplog, snapshot, fresh=False, now=now)
+    assert "despertó 06:02:32 (programado), última entrada +67 s (margen 180 s)" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "kw"),
+    [
+        ((1_100_000, 1_001_000, WOKE), {"needed": True}),  # a visit or an edition meanwhile
+        ((1_100_000, 1_001_000, WOKE + 10_000), {}),  # it slept and woke again
+        ((1_100_000, 1_001_000, 0), {}),  # can't tell when it woke
+        ((1_100_000, 1_001_000, WOKE), {"console": False}),  # another session: input not seen
+        ((1_100_000, 1_001_000, WOKE), {"fresh": False}),  # the hold came from before the wake
+        ((1_100_000, 1_001_000, WOKE), {"now": datetime(2026, 10, 24, 6, 0, 5)}),  # job starting
+    ],
+)
+def test_any_doubt_keeps_the_pc_awake(monkeypatch, caplog, snapshot, kw):
+    assert not sleep_if_unattended(monkeypatch, caplog, snapshot, **kw)
+    assert "no lo duermo" in caplog.text
+
+
+def test_a_failed_sleep_is_logged(monkeypatch, caplog):
+    def suspend():
+        raise OSError(1300, "SetSuspendState")
+
+    sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE))  # the fakes
+    monkeypatch.setattr(schedule, "suspend", suspend)
+    schedule.sleep_if_unattended([], WOKE, True, lambda: False, lambda: AFTER_WAKE)
+    assert "SetSuspendState falló" in caplog.text
+
+
+@pytest.mark.skipif(sys.platform != "win32" or "CI" in os.environ, reason="this PC's session")
+def test_the_native_readers_answer():
+    # Real calls, read-only (nothing here can sleep the PC): the ctypes signatures hold.
+    tick, input32, wake = schedule._snapshot()
+    assert 0 <= input32 < 2**32 and tick > 0
+    assert wake == 0 or 0 < wake // 10_000 <= tick
+    assert wake == schedule.last_wake() and schedule._power_info(15) <= wake
+    assert 0 <= schedule._power_info(16) < 2**32 and abs(schedule._tick() - tick) < 1_000
+    assert schedule._console_session() is True
 
 
 def test_cli_schedule_install_runs_powershell(monkeypatch):

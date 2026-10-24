@@ -3,10 +3,21 @@ from datetime import date, datetime
 import pytest
 from sqlalchemy.orm import Session
 
+from newspaper import schedule
 from newspaper.config.models import NewspaperConfig
 from newspaper.storage import queries
 from newspaper.storage.database import open_db
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
+
+
+@pytest.fixture(autouse=True)
+def never_sleep_the_pc(monkeypatch):
+    """The tests run on the user's PC: none of them may put it to sleep (#22)."""
+
+    def suspend():
+        raise AssertionError("a test tried to sleep the PC")
+
+    monkeypatch.setattr(schedule, "suspend", suspend)
 
 
 @pytest.fixture

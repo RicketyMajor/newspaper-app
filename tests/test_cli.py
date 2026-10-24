@@ -1,7 +1,7 @@
 import logging
 import re
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, time
 from types import SimpleNamespace
 
 import httpx
@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 from sqlalchemy.orm import Session
 
+from newspaper import schedule
 from newspaper.cli import main
 from newspaper.edition.generate import GenerateResult
 from newspaper.storage.models import Note, PushSubscription
@@ -223,8 +224,8 @@ def run_web(tmp_path, monkeypatch, uvicorn_run, *args):
             self.fn(*self.args)
 
     @contextmanager
-    def keep_awake(needed):  # like the real one, it lets go when uvicorn raises
-        calls.needed, calls.recheck = needed, lambda: None
+    def keep_awake(needed, sleep=None):  # like the real one, it lets go when uvicorn raises
+        calls.needed, calls.sleep, calls.recheck = needed, sleep, lambda: None
         calls.awake.append("on")
         try:
             yield calls.recheck
@@ -250,6 +251,8 @@ def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monke
     def uvicorn_run(app, **kwargs):
         seen.update(kwargs, app=app)
         logging.getLogger("uvicorn.error").error("Exception in ASGI application")
+        logging.getLogger("uvicorn.error").info("Started server process")  # noise: not logged
+        logging.getLogger("newspaper.schedule").info("Suelto el PC: …: lo duermo")
 
     result, calls = run_web(tmp_path, monkeypatch, uvicorn_run, "--no-browser")
 
@@ -260,8 +263,13 @@ def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monke
     assert (calls.recovered, calls.opened, calls.awake) == (1, [], ["on", "off"])
     assert calls.needed is app.state.awake  # awake only after an edition or a visit
     assert app.state.recheck is calls.recheck  # and a visit asks again at once
+    # and the end of a hold may sleep a PC nobody touched; our wake is the edition's hour
+    assert calls.sleep.func is schedule.sleep_if_unattended
+    assert calls.sleep.args == ([time(6)],)
     log = (tmp_path / "data" / "web.log").read_text(encoding="utf-8")
     assert "uvicorn.error: Exception in ASGI application" in log
+    assert "newspaper.schedule: Suelto el PC: …: lo duermo" in log  # each decision, to calibrate
+    assert "Started server process" not in log
 
 
 def test_web_on_a_taken_port_points_to_the_running_server(tmp_path, monkeypatch):
