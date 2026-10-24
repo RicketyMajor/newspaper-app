@@ -189,11 +189,6 @@ function setUpNotices(line) {
     const bytes = new Uint8Array(buffer || []);
     return bytes.length === keyBytes.length && bytes.every((b, i) => b === keyBytes[i]);
   };
-  const registration = worker;
-  // Every user awaits it and handles a failure; this keeps one nobody awaited yet (permission
-  // denied, a browser set to refuse workers) out of the console as an unhandled rejection.
-  registration.catch(() => {});
-
   function show(text, label, action) {
     // Each render replaces the button: a keyboard user on the old one lands on the new one, or
     // on the line itself when no button is left (blocked), which also reads it out.
@@ -220,7 +215,7 @@ function setUpNotices(line) {
     }
     let sub;
     try {
-      sub = await (await registration).pushManager.getSubscription();
+      sub = await (await worker).pushManager.getSubscription();
     } catch {
       return show(unavailable);  // the worker never registered: nothing below can work
     }
@@ -248,7 +243,7 @@ function setUpNotices(line) {
   const on = () => locked(async () => {
     let said = "Avisos activados.";
     try {
-      const reg = await registration;
+      const reg = await worker;
       if ((await Notification.requestPermission()) !== "granted") throw new Error("permiso");
       await fresh(reg, { confirm: true });
     } catch {
@@ -261,7 +256,7 @@ function setUpNotices(line) {
   const off = () => locked(async () => {
     let said = "Avisos desactivados.";
     try {
-      const sub = await (await registration).pushManager.getSubscription();
+      const sub = await (await worker).pushManager.getSubscription();
       // The browser first: if the server never hears, its next send gets 404/410 and marks it gone.
       if (sub && (await sub.unsubscribe())) await post("/aviso/baja", { endpoint: sub.endpoint }).catch(() => {});
     } catch {
@@ -274,7 +269,7 @@ function setUpNotices(line) {
   // Each visit: the server learns the subscription again (a new or restored database). A dead
   // endpoint (gone) or a regenerated key gets a fresh one; a plain "new" row is left alone.
   const check = () => locked(async () => {
-    const reg = await registration;
+    const reg = await worker;
     const sub = await reg.pushManager.getSubscription();
     if (!sub || Notification.permission !== "granted") return;
     // A regenerated key needs no POST to know; a dead endpoint, the server's answer.

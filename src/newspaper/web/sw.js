@@ -46,29 +46,14 @@ async function idb(store, mode, op) {
 }
 const getState = () => idb("estado", "readonly", (s) => s.get("actual"));
 const putState = (state) => idb("estado", "readwrite", (s) => s.put(state, "actual"));
-async function copyCache(state) {
-  return state && (await caches.has(state.cache)) ? caches.open(state.cache) : null;
-}
 
 // --- Network helpers.
-function within(ms, promise) {  // its value, or null after ms or on an error
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      () => { clearTimeout(timer); resolve(null); },
-    );
-  });
-}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Its value, or null after ms or on an error.
+const within = (ms, promise) => Promise.race([promise.catch(() => null), sleep(ms).then(() => null)]);
 async function timed(url, init, ms) {  // {res, body}: the deadline covers the body too
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
-    return { res, body: await res.arrayBuffer() };
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+  return { res, body: await res.arrayBuffer() };
 }
 async function getJSON(url, ms = SEND_MS) {
   try {
@@ -78,7 +63,6 @@ async function getJSON(url, ms = SEND_MS) {
     return null;
   }
 }
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function later(event, promise) {  // waitUntil, if the event still accepts it
   try { event.waitUntil(promise); } catch {}
 }
@@ -98,7 +82,9 @@ async function enviar() {
         const init = { method: "POST", headers: { Accept: "application/json" } };
         status = (await timed(url, init, SEND_MS)).res.status;
       } catch {}
-      if (status === 0) return;  // no answer: the PC sleeps, the rest would wait too
+      // ponytail: no answer stops the round (the spec tries every entry): the PC sleeps, and
+      // each of the rest would wait its 15 s for nothing.
+      if (status === 0) return;
       const done = status < 300 || (status >= 400 && status < 500 && status !== 408 && status !== 429);
       if (!done) continue;  // busy (503) or broken: next time, never dropped
       if (status >= 400) console.warn("Newspaper: el PC rechazó", url, status);
@@ -236,11 +222,12 @@ async function afterVisit() {
 async function fromCopy(event, url) {
   const state = await getState();
   if (url.pathname.startsWith("/a/")) return original(url, state);
-  const cache = await copyCache(state);
   const key = url.pathname === "/" && state ? `/e/${state.day}` : url.pathname + url.search;
-  const saved = cache && (await cache.match(key));
+  const saved = state && (await caches.match(key, { cacheName: state.cache }));
   if (!saved) return minimal();
-  later(event, abrir(url));  // queued, not sent: the PC doesn't answer
+  // ponytail: queued without enviar() (the spec sends in the same waitUntil): the PC just
+  // didn't answer, and the next live visit or return to the app sends it.
+  later(event, abrir(url));
   const marks = JSON.stringify(state.base || {}).replace(/&/g, "&amp;").replace(/'/g, "&#39;");
   const html = (await saved.text()).replace(
     "<body",
@@ -259,9 +246,10 @@ async function abrir(url) {  // the opening, with its real time, for the funnel
 }
 async function original(url, state) {  // a source without the PC: its outlet, read later
   const id = url.pathname.split("/")[2];
-  const target = state?.originals?.[id];
+  const originals = state?.originals || {};
+  const target = Object.hasOwn(originals, id) && originals[id];  // never /a/__proto__
   if (!target) return minimal();
-  await encolar(`/a/${id}/estado?flag=read&value=true`);
+  await encolar(`/a/${id}/estado?flag=read&value=true`);  // ponytail: queued, not sent, like a copy's opening
   try {
     return Response.redirect(target, 302);
   } catch {  // not a URL the browser accepts
@@ -281,8 +269,8 @@ function minimal() {
   return new Response(html, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 async function asset(request) {
-  const cache = await copyCache(await getState());
-  const hit = cache && (await cache.match(request));
+  const state = await getState();
+  const hit = state && (await caches.match(request, { cacheName: state.cache }));
   return hit || (await within(NAV_MS, fetch(request))) || Response.error();
 }
 
