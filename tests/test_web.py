@@ -324,17 +324,20 @@ def test_the_pc_stays_awake_only_while_needed(config, engine, monkeypatch):
     assert not app.state.awake()
 
     config.general.notice_time = "07:30"
+
+    def notice(at):  # today's only: awake() must ask for the local date
+        return lambda config_, day: at if day == local_today(config) else None
+
     soon = datetime.now(UTC) - timedelta(minutes=25)
-    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: soon)
+    monkeypatch.setattr("newspaper.web.app.notice_at", notice(soon))
     assert app.state.awake()  # the notice task's wake: a window even if its notice fails
-    monkeypatch.setattr(
-        "newspaper.web.app.notice_at", lambda _: datetime.now(UTC) - schedule.AWAKE_AFTER_NOTICE
-    )
+    over = datetime.now(UTC) - schedule.AWAKE_AFTER_NOTICE
+    monkeypatch.setattr("newspaper.web.app.notice_at", notice(over))
     assert not app.state.awake()
     later = datetime.now(UTC) + timedelta(minutes=1)
-    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: later)
+    monkeypatch.setattr("newspaper.web.app.notice_at", notice(later))
     assert not app.state.awake()  # not before it: the 06:00 wake isn't held until 08:00
-    monkeypatch.setattr("newspaper.web.app.notice_at", lambda _: soon)
+    monkeypatch.setattr("newspaper.web.app.notice_at", notice(soon))
     with Session(engine) as s, s.begin():
         s.get(Edition, edition_id).edition_date = local_today(config) - timedelta(days=1)
     assert not app.state.awake()  # no edition today: nothing for the phone to save

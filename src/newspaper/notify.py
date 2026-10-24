@@ -275,9 +275,7 @@ def edition_notice(
     every `generate` and at the start of every `fetch` (decision 2026-10-21), and with
     `guard=False` from the notice task (`notify --pendiente`): with notice_time set, the
     others wait until it plus NOTICE_GRACE. True when this call's notice went out."""
-    at = notice_at(config, now)
-    if at:  # the edition's own day: one finished past midnight is late, never tomorrow's
-        at = at.replace(year=day.year, month=day.month, day=day.day)
+    at = notice_at(config, day)
     if guard and at and (now or datetime.now(UTC)) < at + NOTICE_GRACE:
         return False
     engine = open_db(config)
@@ -295,7 +293,7 @@ def edition_notice(
     if vapid is None:
         log(f"Aviso: falta {KEY_FILE}; abre la web una vez para crearla.")
         return False
-    now = utcnow()
+    claimed = utcnow()
     # Claim before the first POST: of two processes arriving together only one sends; an
     # opening or a new state meanwhile wins; and the funnel is emptied before a fast ping from
     # this very notice can land. SQLite and the push service share no transaction: at most one
@@ -305,15 +303,15 @@ def edition_notice(
         Edition.opened_at.is_(None),
         Edition.status == seen,
     )
-    claim = {"notified_at": now, "delivered_at": None, "clicked_at": None, "cached_at": None}
+    claim = {"notified_at": claimed, "delivered_at": None, "clicked_at": None, "cached_at": None}
     if _set(engine, edition_id, unchanged, **claim) != 1:
         return False
-    message.n = number(now)
+    message.n = number(claimed)
     sent = send(engine, vapid, message, log)
     # ponytail: one acceptance keeps the claim, so a phone that failed while the PC was accepted
     # waits for `newspaper notify`; retrying per subscription needs a table of its own.
     if not sent.accepted and not sent.uncertain:  # nothing went out: the next fetch tries again
-        _set(engine, edition_id, (Edition.notified_at == now,), notified_at=None)
+        _set(engine, edition_id, (Edition.notified_at == claimed,), notified_at=None)
         return False
     return True
 

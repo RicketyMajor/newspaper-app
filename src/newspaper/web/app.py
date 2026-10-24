@@ -103,10 +103,11 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 return True
             # The notice task's wake (#20a): a window even when its notice fails, since visits
             # are what repair a dead subscription.
-            at = notice_at(config)
+            today = local_today(config)
+            at = notice_at(config, today)
             aware_now = datetime.now(UTC)
             in_window = at is not None and at <= aware_now < at + schedule.AWAKE_AFTER_NOTICE
-            if in_window and queries.today_edition(s, local_today(config)) is not None:
+            if in_window and queries.today_edition(s, today) is not None:
                 return True
             # Any date: a run past midnight is still this morning's. After an edition (a failed
             # one too) only AWAY, so #22b doesn't decide on the generation's phantom inputs; the

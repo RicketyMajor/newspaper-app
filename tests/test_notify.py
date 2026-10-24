@@ -397,11 +397,12 @@ EARLY = datetime(2026, 10, 10, 10, 32, tzinfo=UTC)  # 07:32 in Santiago (UTC-3)
 LATE = datetime(2026, 10, 10, 10, 36, tzinfo=UTC)  # 07:36
 
 
-def test_notice_at_is_todays_local_time(config):
-    assert notice_at(config, EARLY) is None
+def test_notice_at_is_the_days_local_time(config):
+    assert notice_at(config, DAY) is None
     config.general.notice_time = "07:30"
-    at = notice_at(config, EARLY)
-    assert (at.hour, at.minute, at.utcoffset().total_seconds()) == (7, 30, -3 * 3600)
+    at = notice_at(config, DAY)
+    assert (at.date(), at.hour, at.minute) == (DAY, 7, 30)
+    assert at.utcoffset().total_seconds() == -3 * 3600
 
 
 def test_generate_and_fetch_wait_until_after_the_notice_time(config, engine, seeded, push):
