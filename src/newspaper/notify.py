@@ -478,9 +478,6 @@ def remove(engine: Engine, endpoint: str) -> None:
         s.execute(delete(PushSubscription).where(PushSubscription.endpoint == endpoint))
 
 
-PING_COLUMNS = {"entregado": "delivered_at", "tocado": "clicked_at", "guardada": "cached_at"}
-
-
 def record_ping(
     engine: Engine,
     day: date,
@@ -492,10 +489,14 @@ def record_ping(
     """The worker's 'entregado', 'guardada' (its copy saved, #20a) or 'tocado' for the edition
     of `day`, in any state. Only the phone fills the funnel: the desktop, awake at 06:20, would
     always answer first. `n` names the notice: a ping for an older one is never credited to a
-    resend, and one without it (a worker from before #20a) counts. `at` is when it happened,
-    for pings queued while the PC slept: the earliest wins, never before the notice. False when
-    there is no edition that day."""
-    column = getattr(Edition, PING_COLUMNS[event])
+    resend, and one without it (a worker from before #20a) counts. `at` is when it happened, in
+    UTC, for pings queued while the PC slept: the earliest wins, never before the notice. False
+    when there is no edition that day."""
+    column = {
+        "entregado": Edition.delivered_at,
+        "tocado": Edition.clicked_at,
+        "guardada": Edition.cached_at,
+    }[event]
     with engine.begin() as conn:
         found = conn.execute(
             select(Edition.id, Edition.notified_at).where(Edition.edition_date == day)
