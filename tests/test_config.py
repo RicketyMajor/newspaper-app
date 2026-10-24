@@ -41,7 +41,9 @@ def test_edition_hour_must_be_an_hour():
 def test_notice_time_is_hh_mm_or_unset():
     assert NewspaperConfig().general.notice_time is None
     assert NewspaperConfig(general={"notice_time": "07:30"}).general.notice_time == "07:30"
-    for bad in ("7:30", "24:00", "07:60", "07.30"):
+    assert NewspaperConfig(general={"notice_time": "22:59"}).general.notice_time == "22:59"
+    # 23:xx: its 30-min window and its retries would cross midnight, which nothing handles
+    for bad in ("7:30", "24:00", "07:60", "07.30", "23:00", "23:55"):
         with pytest.raises(ValidationError):
             NewspaperConfig(general={"notice_time": bad})
 
