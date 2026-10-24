@@ -42,6 +42,21 @@ def test_a_read_mark_keeps_the_revision_and_guardado_changes_it(client, engine, 
     assert client.get("/sin-pc").json()["revision"] != first
 
 
+def test_a_forced_run_and_an_upgrade_change_the_revision(client, engine, seeded, monkeypatch):
+    def revision(finished=None):
+        if finished:
+            with Session(engine) as s, s.begin():
+                s.get(Edition, seeded["edition"]).finished_at = finished
+        return client.get("/sin-pc").json()["revision"]
+
+    first = revision(datetime(2026, 10, 10, 9, 0))
+    forced = revision(datetime(2026, 10, 10, 9, 40))  # `generate --force`: same row, new notes
+    assert forced != first
+    env = client.get("/").template.environment  # new style.css or app.js: new ?v=
+    monkeypatch.setitem(env.globals, "static_v", env.globals["static_v"] + 1)
+    assert revision() != forced
+
+
 def test_no_edition_no_copy(client):
     response = client.get("/sin-pc")
     assert response.status_code == 404 and "Todavía no hay ediciones listas" in response.text
@@ -114,6 +129,17 @@ def test_an_opening_without_the_pc_keeps_its_real_time(client, engine, seeded):
     assert opened_at(engine, Note, note) == datetime(2026, 10, 10, 11, 5)  # the earliest wins
     client.post("/e/2026-10-10/abierta?at=2026-10-10T10:40:00%2B00:00", headers=SAME)
     assert opened_at(engine, Edition, seeded["edition"]) == datetime(2026, 10, 10, 10, 40)
+
+
+def test_an_opening_is_never_before_its_edition_started(client, engine, seeded):
+    started = datetime(2026, 10, 10, 9, 0)
+    with Session(engine) as s, s.begin():
+        s.get(Edition, seeded["edition"]).started_at = started
+    early = "at=2026-10-10T08:00:00Z"  # a phone whose clock runs behind
+    client.post(f"/e/2026-10-10/abierta?{early}", headers=SAME)
+    assert opened_at(engine, Edition, seeded["edition"]) == started
+    client.post(f"/n/{seeded['front']}/abierta?{early}", headers=SAME)
+    assert opened_at(engine, Note, seeded["front"]) == started
 
 
 def test_a_device_time_is_clamped_or_refused(client, engine, seeded):
