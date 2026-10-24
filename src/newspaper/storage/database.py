@@ -24,6 +24,7 @@ ADDED_COLUMNS = {
     "editions": {
         "notified_at": "DATETIME",
         "delivered_at": "DATETIME",
+        "cached_at": "DATETIME",
         "clicked_at": "DATETIME",
         "opened_at": "DATETIME",
     },

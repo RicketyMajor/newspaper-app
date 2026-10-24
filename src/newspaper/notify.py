@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -33,7 +33,7 @@ from .dates import long_date
 from .edition.today import notice_at
 from .storage import queries
 from .storage.database import open_db
-from .storage.models import Edition, EditionStatus, PushSubscription, utcnow
+from .storage.models import Edition, EditionStatus, PushSubscription, clamped, utcnow
 
 KEY_FILE = "vapid.pem"
 # RFC 8292's contact claim. It names nobody on purpose: a repo URL would tie the author's
@@ -138,13 +138,14 @@ class Message:
     title: str
     body: str
     day: date | None = None
+    n: int | None = None  # the notice's number (#20a): its pings carry it back
 
     def payload(self, sid: int) -> bytes:
         # Cut so the JSON stays far below one aes128gcm record (3993 bytes, RFC 8291 §4), even
         # in 4-byte characters.
         data = {"kind": self.kind, "title": _cut(self.title, 80), "body": _cut(self.body, 200)}
         if self.kind == "edicion":  # the service worker pings back with these
-            data |= {"day": self.day.isoformat(), "sid": sid}
+            data |= {"day": self.day.isoformat(), "sid": sid, "n": self.n}
         return json.dumps(data, ensure_ascii=False).encode()
 
 
@@ -153,6 +154,11 @@ class Sent:
     accepted: int = 0
     uncertain: int = 0  # reached the push service but the answer was lost: maybe delivered
     total: int = 0
+
+
+def number(at: datetime) -> int:
+    """A notice's number, sent in it and in its pings: its notified_at in seconds."""
+    return int(at.replace(tzinfo=UTC).timestamp())
 
 
 def send(
@@ -179,7 +185,9 @@ def send(
                 body = encrypt(message.payload(sub.id), sub.p256dh, sub.auth)
                 headers = vapid_headers(vapid, sub.endpoint, int(time.time())) | {
                     "TTL": str(TTL),
-                    "Urgency": "normal",
+                    # High for the day's notice: Android delivers it in Doze, and the worker gets
+                    # the network to save the copy (#20a).
+                    "Urgency": "high" if message.kind == "edicion" else "normal",
                     "Content-Encoding": "aes128gcm",
                     "Content-Type": "application/octet-stream",
                 }
@@ -294,9 +302,10 @@ def edition_notice(
         Edition.opened_at.is_(None),
         Edition.status == seen,
     )
-    claim = {"notified_at": now, "delivered_at": None, "clicked_at": None}
+    claim = {"notified_at": now, "delivered_at": None, "clicked_at": None, "cached_at": None}
     if _set(engine, edition_id, unchanged, **claim) != 1:
         return
+    message.n = number(now)
     sent = send(engine, vapid, message, log)
     # ponytail: one acceptance keeps the claim, so a phone that failed while the PC was accepted
     # waits for `newspaper notify`; retrying per subscription needs a table of its own.
@@ -323,12 +332,14 @@ def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> st
             "notified_at": edition.notified_at,
             "delivered_at": edition.delivered_at,
             "clicked_at": edition.clicked_at,
+            "cached_at": edition.cached_at,
         }
     vapid = load_key(key_path(config))
     if vapid is None:
         return f"Falta {KEY_FILE}: abre la web una vez para crearla."
     now = utcnow()
-    _set(engine, edition_id, notified_at=now, delivered_at=None, clicked_at=None)
+    _set(engine, edition_id, notified_at=now, delivered_at=None, clicked_at=None, cached_at=None)
+    message.n = number(now)
     sent = send(engine, vapid, message, log)
     if not sent.accepted and not sent.uncertain:
         # Only if still ours: another notify may have succeeded meanwhile.
@@ -416,18 +427,39 @@ def remove(engine: Engine, endpoint: str) -> None:
         s.execute(delete(PushSubscription).where(PushSubscription.endpoint == endpoint))
 
 
-def record_ping(engine: Engine, day: date, event: str, sid: int) -> bool:
-    """The worker's 'entregado' or 'tocado' for the edition of `day`, in any state. Only the
-    phone fills the funnel: the desktop, awake at 06:20, would always answer first. False when
+PING_COLUMNS = {"entregado": "delivered_at", "tocado": "clicked_at", "guardada": "cached_at"}
+
+
+def record_ping(
+    engine: Engine,
+    day: date,
+    event: str,
+    sid: int,
+    n: int | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """The worker's 'entregado', 'guardada' (its copy saved, #20a) or 'tocado' for the edition
+    of `day`, in any state. Only the phone fills the funnel: the desktop, awake at 06:20, would
+    always answer first. `n` names the notice: a ping for an older one is never credited to a
+    resend, and one without it (a worker from before #20a) counts. `at` is when it happened,
+    for pings queued while the PC slept: the earliest wins, never before the notice. False when
     there is no edition that day."""
-    column = {"entregado": Edition.delivered_at, "tocado": Edition.clicked_at}[event]
+    column = getattr(Edition, PING_COLUMNS[event])
     with engine.begin() as conn:
-        edition_id = conn.scalar(select(Edition.id).where(Edition.edition_date == day))
-        if edition_id is None:
+        found = conn.execute(
+            select(Edition.id, Edition.notified_at).where(Edition.edition_date == day)
+        ).first()
+        if found is None:
             return False
+        edition_id, notified = found
+        if n is not None and (notified is None or number(notified) != n):
+            return True
         if conn.scalar(select(PushSubscription.mobile).where(PushSubscription.id == sid)):
-            stmt = update(Edition).where(Edition.id == edition_id, column.is_(None))
-            conn.execute(stmt.values({column: utcnow()}))
+            when = clamped(at, notified)
+            stmt = update(Edition).where(
+                Edition.id == edition_id, or_(column.is_(None), column > when)
+            )
+            conn.execute(stmt.values({column: when}))
     return True
 
 

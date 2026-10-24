@@ -288,7 +288,7 @@ def config(ctx: click.Context) -> None:
 
 
 def _funnel(config: NewspaperConfig, edition: Edition) -> str:
-    """Notice → arrived → tapped (the phone) → opened → read (any device)."""
+    """Notice → arrived → saved → tapped (the phone) → opened → read (any device)."""
     zone = ZoneInfo(config.general.timezone)
 
     def at(moment: datetime | None) -> str:
@@ -298,8 +298,8 @@ def _funnel(config: NewspaperConfig, edition: Edition) -> str:
     opened = sum(n.opened_at is not None for n in edition.notes)
     notice = f"Aviso {at(edition.notified_at)}" if edition.notified_at else "Sin aviso"
     return (
-        f"{notice} · llegó {at(edition.delivered_at)} · tocado {at(edition.clicked_at)}"
-        f" · abierta {at(edition.opened_at)}"
+        f"{notice} · llegó {at(edition.delivered_at)} · guardada {at(edition.cached_at)}"
+        f" · tocado {at(edition.clicked_at)} · abierta {at(edition.opened_at)}"
         f" · {opened} {'nota abierta' if opened == 1 else 'notas abiertas'}"
         f" · {sum(n.is_read for n in core)} de {len(core)} esenciales leídas"
     )

@@ -13,6 +13,16 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def clamped(at: datetime | None, floor: datetime | None = None) -> datetime:
+    """A moment a device reported, as naive UTC like utcnow(): never in the future, never before
+    `floor`. None means now."""
+    now = utcnow()
+    if at is None:
+        return now
+    moment = min(at.astimezone(UTC).replace(tzinfo=None), now)
+    return max(moment, floor) if floor else moment
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -52,10 +62,11 @@ class Edition(Base):
     finished_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(Text)
     feed_errors: Mapped[str | None] = mapped_column(Text)
-    # The daily notice (#17): when it went out, when the phone got it and tapped it, and the
-    # first opening from any device. Opening is not reading.
+    # The daily notice (#17): when it went out, when the phone got it, saved its copy (#20a)
+    # and tapped it, and the first opening from any device. Opening is not reading.
     notified_at: Mapped[datetime | None]
     delivered_at: Mapped[datetime | None]
+    cached_at: Mapped[datetime | None]
     clicked_at: Mapped[datetime | None]
     opened_at: Mapped[datetime | None]
 

@@ -202,7 +202,7 @@ def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded)
 
     assert result.exit_code == 0, result.output
     assert (
-        "Aviso 06:21 · llegó 07:10 · tocado — · abierta — · 1 nota abierta"
+        "Aviso 06:21 · llegó 07:10 · guardada — · tocado — · abierta — · 1 nota abierta"
         " · 0 de 2 esenciales leídas"
     ) in result.output
     assert "Avisos: 1 suscripción (1 en el teléfono)" in result.output

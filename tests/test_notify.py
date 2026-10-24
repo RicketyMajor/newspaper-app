@@ -177,7 +177,7 @@ def test_send_posts_an_encrypted_signed_notice(engine, tmp_path):
     assert (sent.accepted, sent.uncertain, sent.total) == (1, 0, 1)
     [request] = seen
     assert str(request.url) == phone.endpoint
-    assert request.headers["TTL"] == "43200" and request.headers["Urgency"] == "normal"
+    assert request.headers["TTL"] == "43200" and request.headers["Urgency"] == "high"
     assert request.headers["Topic"] == "edicion"
     assert request.headers["Content-Encoding"] == "aes128gcm"
     assert request.headers["Authorization"].startswith("vapid t=")
@@ -187,7 +187,27 @@ def test_send_posts_an_encrypted_signed_notice(engine, tmp_path):
         "body": "Senado",
         "day": "2026-10-10",
         "sid": phone.id,
+        "n": None,
     }
+
+
+def test_the_days_notice_is_urgent_and_numbered(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    phone = subscribe(engine)
+    seen = []
+    message = notify.Message("edicion", "T", "B", DAY, n=1760092860)
+    notify.send(engine, vapid, message, lambda _: None, http=service(201, seen=seen))
+    assert seen[0].headers["Urgency"] == "high"
+    assert decrypt(seen[0], phone)["n"] == 1760092860
+
+
+def test_the_confirmation_stays_normal(engine, tmp_path):
+    vapid = notify.ensure_key(tmp_path / "vapid.pem")
+    subscribe(engine)
+    seen = []
+    test = notify.Message("confirmacion", "Listo", "x")
+    notify.send(engine, vapid, test, lambda _: None, http=service(201, seen=seen))
+    assert seen[0].headers["Urgency"] == "normal"
 
 
 def test_the_confirmation_goes_to_one_browser_without_day_sid_or_topic(engine, tmp_path):
@@ -500,3 +520,60 @@ def test_resend_explains_when_there_is_nothing_to_send(config, engine, seeded, p
     with Session(engine) as s, s.begin():
         s.execute(update(PushSubscription).values(gone_at=datetime(2026, 10, 10)))
     assert notify.resend(config, DAY, print) == "No hay suscripciones: actívalas al pie de Hoy."
+
+
+def test_the_claim_numbers_the_notice_and_empties_saved(config, engine, seeded, push):
+    set_edition(engine, cached_at=datetime(2026, 10, 9, 10, 0))
+    notify.edition_notice(config, DAY, lambda _: None)
+    with Session(engine) as s:
+        e = s.scalars(select(Edition).where(Edition.edition_date == DAY)).one()
+        assert e.cached_at is None
+        assert push.messages[0].n == notify.number(e.notified_at)
+
+
+def test_resend_numbers_it_and_restores_saved_when_nothing_goes_out(config, engine, seeded, push):
+    saved = datetime(2026, 10, 10, 10, 31)
+    set_edition(engine, notified_at=datetime(2026, 10, 10, 10, 30), cached_at=saved)
+    push.result = notify.Sent(total=1)
+    notify.resend(config, DAY, lambda _: None)
+    assert push.messages[0].n is not None
+    with Session(engine) as s:
+        e = s.scalars(select(Edition).where(Edition.edition_date == DAY)).one()
+        assert e.cached_at == saved
+
+
+def ping_row(engine):
+    with Session(engine) as s:
+        e = s.scalars(select(Edition).where(Edition.edition_date == DAY)).one()
+        return e.notified_at, e.delivered_at, e.cached_at
+
+
+def test_saved_is_a_ping_of_its_own(config, engine, seeded):
+    phone = subscribe(engine)
+    notified = datetime(2026, 10, 10, 10, 30)
+    set_edition(engine, notified_at=notified)
+    assert notify.record_ping(engine, DAY, "guardada", phone.id, n=notify.number(notified))
+    assert ping_row(engine)[2] is not None
+
+
+def test_a_ping_for_an_old_notice_is_ignored_and_one_without_number_counts(config, engine, seeded):
+    phone = subscribe(engine)
+    set_edition(engine, notified_at=datetime(2026, 10, 10, 10, 30))
+    assert notify.record_ping(engine, DAY, "entregado", phone.id, n=123)
+    assert ping_row(engine)[1] is None
+    assert notify.record_ping(engine, DAY, "entregado", phone.id)
+    assert ping_row(engine)[1] is not None
+
+
+def test_queued_pings_keep_the_earliest_time_inside_the_notice(config, engine, seeded):
+    phone = subscribe(engine)
+    notified = datetime(2026, 10, 10, 10, 30)
+    set_edition(engine, notified_at=notified)
+    later = datetime(2026, 10, 10, 11, 5, tzinfo=UTC)
+    earlier = datetime(2026, 10, 10, 10, 40, tzinfo=UTC)
+    before = datetime(2026, 10, 10, 9, 0, tzinfo=UTC)
+    notify.record_ping(engine, DAY, "entregado", phone.id, at=later)
+    notify.record_ping(engine, DAY, "entregado", phone.id, at=earlier)
+    assert ping_row(engine)[1] == datetime(2026, 10, 10, 10, 40)
+    notify.record_ping(engine, DAY, "entregado", phone.id, at=before)
+    assert ping_row(engine)[1] == notified  # never before the notice itself

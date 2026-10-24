@@ -158,7 +158,7 @@ def test_open_db_adds_the_notice_columns_to_an_older_database(config):
     with engine.connect() as c:
         editions = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(editions)")}
         notes = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(notes)")}
-    assert {"notified_at", "delivered_at", "clicked_at", "opened_at"} <= editions
+    assert {"notified_at", "delivered_at", "cached_at", "clicked_at", "opened_at"} <= editions
     assert "opened_at" in notes
 
 
