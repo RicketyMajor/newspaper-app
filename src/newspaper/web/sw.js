@@ -271,10 +271,13 @@ async function original(url, state) {  // a source without the PC: its outlet, r
 function minimal() {
   const name = NAME.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">`
-    + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title></head>`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1">`
+    + `<meta name="color-scheme" content="light dark"><title>Sin el PC · ${name}</title></head>`
     + `<body><main style="font:1.1rem/1.5 system-ui,sans-serif;max-width:32rem;margin:20vh auto;padding:0 20px">`
     + `<h1 style="font-size:1.4rem">Esta página necesita el PC.</h1>`
-    + `<p>El PC está dormido o fuera de alcance. <a href="/">Volver a Hoy</a></p></main></body></html>`;
+    + `<p>El PC está dormido o fuera de alcance.</p>`
+    + `<p><a href="/" style="display:inline-flex;align-items:center;min-height:44px">Volver a Hoy</a></p>`
+    + `</main></body></html>`;
   return new Response(html, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 async function asset(request) {

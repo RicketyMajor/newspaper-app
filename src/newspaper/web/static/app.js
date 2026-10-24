@@ -37,6 +37,10 @@ document.addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   if (copy) {  // marks without the PC are #20b
+    // The caption moves under the row tapped: a source's or Guardado's would show nothing.
+    const caption = document.getElementById("espera");
+    form.closest(".toggles").after(caption);
+    caption.hidden = false;
     live.textContent = "Las marcas esperan al PC.";
     return;
   }
@@ -298,7 +302,7 @@ if (liveDay) {
     if (!answer) return;
     const today = document.querySelector(".rail");
     if (!answer.pc) {
-      if (today) showSinPc();
+      if (today) showSinPc(!copy);  // read out on a live Today; a copy's line is the page's
       return;
     }
     if (sinPc && !copy) sinPc.hidden = true;  // the PC is back: a live Today's marks don't wait
@@ -330,7 +334,7 @@ async function ask() {
 // Without the PC (#20a): the line at the foot of Today, and the copy's marks as of the last
 // sync (the base), with the buttons waiting for the PC.
 const sinPc = document.querySelector(".sin-pc");
-function showSinPc() {
+function showSinPc(announce) {
   if (!sinPc) return;
   const day = document.body.dataset.copia || document.querySelector(".rail")?.dataset.day;
   const today = new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local time
@@ -343,8 +347,16 @@ function showSinPc() {
       ? `La de hoy llega con el aviso de las ${notice}.`
       : "La de hoy se guarda cuando el teléfono alcance al PC.");
   }
-  sinPc.textContent = text;
+  if (!announce || !sinPc.hidden) {
+    sinPc.textContent = text;
+    sinPc.hidden = false;
+    return;
+  }
+  // A status that appears already filled isn't read out: it appears empty, and the text lands
+  // once a frame has drawn it.
+  sinPc.textContent = "";
   sinPc.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => (sinPc.textContent = text)));
 }
 
 function applyMarks(base) {
@@ -358,10 +370,17 @@ function applyMarks(base) {
     const button = form.querySelector("button");
     button.setAttribute("aria-pressed", String(on));
     button.setAttribute("aria-disabled", "true");
+    button.setAttribute("aria-describedby", "espera");
     if (kind === "a" && flag === "read") form.closest("li")?.classList.toggle("is-read", on);
   }
-  note?.querySelector(":scope > .toggles")
-    ?.insertAdjacentHTML("afterend", '<p class="espera">Las marcas esperan al PC.</p>');
+  // One caption for every waiting button: under the note's own row, elsewhere hidden (it still
+  // describes them) until a tap moves it under the row tapped.
+  const caption = Object.assign(document.createElement("p"), {
+    id: "espera", className: "espera", textContent: "Las marcas esperan al PC.",
+  });
+  const own = note?.querySelector(":scope > .toggles");
+  caption.hidden = !own;
+  (own || document.querySelector(".toggles"))?.after(caption);
   // Today's cards and Guardado's lines, read or not as the base says, with the check the server
   // draws (read_mark): the copy is usually saved at the notice, before any reading. A read card
   // loses "Sigue aquí", which doesn't move to the next one.

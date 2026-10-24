@@ -478,7 +478,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
 
   /* Toggles answer the press; the glyph pops in when it turns on. */
   .toggles button, .filter a, .noon-wrap .cta a, .aviso button { transition: transform 0.12s; }
-  .toggles button:active, .filter a:active, .noon-wrap .cta a:active, .aviso button:active { transform: scale(0.96); }
+  .toggles button:not([aria-disabled="true"]):active, .filter a:active, .noon-wrap .cta a:active, .aviso button:active { transform: scale(0.96); }
   .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
   .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
 }
@@ -506,6 +506,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font:
 .aviso, .sin-pc { max-width: var(--column); margin: 1.5rem auto 0; padding: 0 20px; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
 body.sky .aviso, body.sky .sin-pc { padding-right: 52px; }  /* clear of the rail */
 .toggles button[aria-disabled="true"] { opacity: 0.7; cursor: not-allowed; }  /* 0.7: still AA */
+.toggles button[aria-disabled="true"]:focus-visible { opacity: 1; }  /* the ring at full strength */
 .espera { margin: 0.5rem 0 0; color: var(--muted); font: 400 12.5px/1.5 var(--sans); }
 .note > .toggles:has(+ .espera) { margin-bottom: 0; }
 .note > .espera { margin: 10px 14px 30px; text-align: center; }  /* under the row of pills */
