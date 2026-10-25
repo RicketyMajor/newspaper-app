@@ -409,14 +409,22 @@ AFTER_WAKE = datetime(2026, 10, 23, 23, 20)  # not one of our wakes: the 15 s gr
 
 
 def sleep_if_unattended(
-    monkeypatch, caplog, snapshot, *, needed=False, console=True, visited=False, **kw
+    monkeypatch, caplog, snapshot, *, needed=False, console=True, visited=False, away=False, **kw
 ):
-    """`sleep_if_unattended` at AFTER_WAKE (unless `now`), fresh unless told; True if it slept."""
+    """`sleep_if_unattended` at AFTER_WAKE (unless `now`), fresh unless told; True if it slept
+    (`away`: SetSuspendState came back without sleeping, as in Away Mode)."""
     slept, order = [], []
-    monkeypatch.setattr(schedule, "suspend", lambda: slept.append(1))
+    info = {14: WOKE, 15: WOKE // 2, 16: 0x80000001}
+
+    def suspend():
+        slept.append(1)
+        if not away:  # a real sleep moves both: slept at 23:19:10, back at 23:19:50
+            info.update({14: 1_090_000 * 10_000, 15: 1_050_000 * 10_000})
+
+    monkeypatch.setattr(schedule, "suspend", suspend)
     monkeypatch.setattr(schedule, "_console_session", lambda: console)
     monkeypatch.setattr(schedule, "_snapshot", lambda: order.append("snapshot") or snapshot)
-    monkeypatch.setattr(schedule, "_power_info", {14: WOKE, 15: WOKE // 2, 16: 0x80000001}.get)
+    monkeypatch.setattr(schedule, "_power_info", info.get)
     monkeypatch.setattr(schedule, "_tick", lambda: 1_100_000)
     caplog.set_level(logging.INFO, logger="newspaper.schedule")
 
@@ -442,7 +450,15 @@ def test_sleeps_the_pc_nobody_touched_since_it_woke(monkeypatch, caplog):
         "despertó 23:18:20, última entrada +1 s (margen 15 s), estado 0x80000001: lo duermo"
         in caplog.text
     )
-    assert "Volvió: durmió de 23:10:00 a 23:18:20" in caplog.text  # proof it slept, and how long
+    assert "Volvió: durmió de 23:19:10 a 23:19:50" in caplog.text  # proof it slept, and how long
+
+
+def test_a_sleep_that_never_happened_says_so(monkeypatch, caplog):
+    # 2026-10-25: uTorrent asked for Away Mode, so SetSuspendState came back at once (event 59)
+    # and the log said "Volvió" with the sleep before. LastWakeTime unchanged: it never slept.
+    sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE), away=True)
+    assert "No durmió" in caplog.text and "AWAYMODE" in caplog.text
+    assert "Volvió" not in caplog.text
 
 
 def test_someone_at_the_pc_keeps_it_awake(monkeypatch, caplog):

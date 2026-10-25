@@ -322,8 +322,14 @@ def sleep_if_unattended(
         except OSError as e:
             log.warning("SetSuspendState falló: %s", e)
             return
-        tick, back = _tick(), now()  # SetSuspendState returns once the PC is back
-        slept, woke = (_clock(_power_info(level), tick, back) for level in (15, 14))
+        tick, back, again = _tick(), now(), _power_info(14)  # it returns once the PC is back
+        if again == wake:  # back at once, never slept: uTorrent's Away Mode did it (2026-10-25)
+            log.warning(
+                "No durmió: SetSuspendState volvió sin suspender "
+                "(¿modo ausente? powercfg /requests, sección AWAYMODE)"
+            )
+            return
+        slept, woke = _clock(_power_info(15), tick, back), _clock(again, tick, back)
         log.info("Volvió: durmió de %s a %s", f"{slept:%H:%M:%S}", f"{woke:%H:%M:%S}")
 
 
