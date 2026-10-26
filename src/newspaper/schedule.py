@@ -151,6 +151,8 @@ USE_GAP = timedelta(minutes=1)
 # Our wakes came at 06:00:23 … 06:02:35; and in this window after a scheduled time our own job may
 # be starting (generate claims its edition ~10 s in), so nothing is slept then.
 SCHEDULED_WAKE_WINDOW = timedelta(minutes=10)
+# The wake can also come just before its time (07:29:57 for 07:30, 2026-10-26): still ours.
+WAKE_LEAD = timedelta(seconds=30)
 
 
 def input_after_wake(tick_ms: int, input_ms32: int, wake_100ns: int) -> timedelta | None:
@@ -166,11 +168,14 @@ def input_after_wake(tick_ms: int, input_ms32: int, wake_100ns: int) -> timedelt
     return timedelta(milliseconds=tick_ms - idle - wake_ms)
 
 
-def _at_scheduled(moment: datetime, scheduled: list[time]) -> bool:
-    """Within the window after a scheduled time (local). ponytail: the window doesn't cross
-    midnight; today the times are the edition's and the notice's (06:00, 07:30)."""
+def _at_scheduled(
+    moment: datetime, scheduled: list[time], lead: timedelta = timedelta(0)
+) -> bool:
+    """Within the window after a scheduled time, or `lead` before it (local). ponytail: the
+    window doesn't cross midnight; today the times are the edition's and the notice's (06:00,
+    07:30)."""
     return any(
-        timedelta(0) <= moment - datetime.combine(moment.date(), t) < SCHEDULED_WAKE_WINDOW
+        -lead <= moment - datetime.combine(moment.date(), t) < SCHEDULED_WAKE_WINDOW
         for t in scheduled
     )
 
@@ -178,7 +183,7 @@ def _at_scheduled(moment: datetime, scheduled: list[time]) -> bool:
 def wake_grace(woke_at: datetime, now: datetime, scheduled: list[time]) -> timedelta:
     """How long after waking an input is still no one: longer after one of our own wakes, if it
     was this one's (past midnight too, for a 23:00 edition), not one a day old."""
-    ours = now - woke_at < timedelta(hours=12) and _at_scheduled(woke_at, scheduled)
+    ours = now - woke_at < timedelta(hours=12) and _at_scheduled(woke_at, scheduled, WAKE_LEAD)
     return SCHEDULED_WAKE_GRACE if ours else WAKE_GRACE
 
 

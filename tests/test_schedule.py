@@ -396,6 +396,16 @@ def test_our_wake_forgives_the_phantom_input_of_its_first_minutes():
     assert grace == schedule.SCHEDULED_WAKE_GRACE
 
 
+def test_our_wake_may_come_a_few_seconds_before_its_time():
+    # 2026-10-26: the 07:30 task woke the PC at 07:29:57 and it was never slept again.
+    woke = datetime(2026, 10, 26, 7, 29, 57)
+    grace = schedule.wake_grace(woke, woke + timedelta(minutes=30), [time(6), time(7, 30)])
+    assert grace == schedule.SCHEDULED_WAKE_GRACE
+    # the lead extends the start of the window, not its end
+    woke = datetime(2026, 10, 26, 6, 9, 45)
+    assert schedule.wake_grace(woke, woke, SIX) == schedule.SCHEDULED_WAKE_GRACE
+
+
 def test_any_other_wake_forgives_only_the_key_that_woke_it():
     late, early = datetime(2026, 10, 23, 6, 12), datetime(2026, 10, 23, 5, 59)
     for woke in (datetime(2026, 10, 23, 23, 17, 31), late, early):
