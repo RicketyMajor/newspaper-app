@@ -88,6 +88,12 @@ def test_p256dh_rejects_a_compressed_point_the_browser_could_not_decrypt_for():
         ("https://fcm.googleapis.com/fcm/send/abc", True),
         ("https://wns2-par02p.notify.windows.com/w/?token=x", True),
         ("https://updates.push.services.mozilla.com/wpush/v2/x", True),
+        # 2026-10-27: Chrome Beta's endpoint
+        ("https://jmt17.google.com/fcm/send/dqX4XQ2aup4:APA91b", True),
+        ("https://script.google.com/macros/s/abc/exec", False),
+        ("https://jmt17.google.com.evil.test/fcm/send/abc", False),
+        ("https://script.google.com/fcm/send/../../macros/s/abc/exec", False),
+        ("https://script.google.com/fcm/send/%2e%2e/macros", False),
         ("http://fcm.googleapis.com/fcm/send/abc", False),
         ("https://fcm.googleapis.com.evil.test/x", False),
         ("https://127.0.0.1:8765/a/1", False),

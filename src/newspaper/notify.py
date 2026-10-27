@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -105,7 +106,10 @@ def allowed_endpoint(url: str) -> bool:
     URL of their choosing every morning."""
     parts = urlsplit(url)
     host = parts.hostname or ""
-    return parts.scheme == "https" and (host in PUSH_HOSTS or host.endswith(PUSH_SUFFIX))
+    # Chrome Beta hands out `<shard>.google.com/fcm/send/…`: any google.com host, but only that path.
+    # The token alone after it: no dot segments or escapes for the HTTP client to resolve elsewhere.
+    fcm = host.endswith(".google.com") and bool(re.fullmatch(r"/fcm/send/[\w:-]+", parts.path))
+    return parts.scheme == "https" and (host in PUSH_HOSTS or host.endswith(PUSH_SUFFIX) or fcm)
 
 
 def encrypt(payload: bytes, p256dh: str, auth: str) -> bytes:
