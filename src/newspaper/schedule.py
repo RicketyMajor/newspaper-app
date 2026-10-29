@@ -168,9 +168,7 @@ def input_after_wake(tick_ms: int, input_ms32: int, wake_100ns: int) -> timedelt
     return timedelta(milliseconds=tick_ms - idle - wake_ms)
 
 
-def _at_scheduled(
-    moment: datetime, scheduled: list[time], lead: timedelta = timedelta(0)
-) -> bool:
+def _at_scheduled(moment: datetime, scheduled: list[time], lead: timedelta = timedelta(0)) -> bool:
     """Within the window after a scheduled time, or `lead` before it (local). ponytail: the
     window doesn't cross midnight; today the times are the edition's and the notice's (06:00,
     07:30)."""
