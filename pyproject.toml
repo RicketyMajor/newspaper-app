@@ -7,7 +7,6 @@ name = "newspaper"
 version = "0.1.0"
 description = "A personal daily newspaper: RSS sources, local AI curation, TUI and local web reader"
 readme = "README.md"
-license = { text = "MIT" }
 requires-python = ">=3.12"
 authors = [
     { name = "Alonso Vera", email = "alonsoveralarach@gmail.com" },

@@ -10,7 +10,6 @@
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white">
   <img alt="IA: solo local" src="https://img.shields.io/badge/IA-solo%20local%20(Ollama)-1D2733">
   <img alt="Plataforma: Windows" src="https://img.shields.io/badge/plataforma-Windows-0078D4">
-  <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-EE9B4A"></a>
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>Español</b></p>
@@ -230,6 +229,6 @@ ruff format --check src tests
 
 El CI corre los tres en Windows con cada push a `master`.
 
-## Licencia
+## Tipografías
 
-[MIT](LICENSE) © 2026 Alonso Vera. Las fuentes tipográficas incluidas (Newsreader y Atkinson Hyperlegible Next) tienen la licencia SIL Open Font License; ver `src/newspaper/web/static/fonts/`.
+Las fuentes tipográficas incluidas (Newsreader y Atkinson Hyperlegible Next) tienen la licencia SIL Open Font License; ver `src/newspaper/web/static/fonts/`.

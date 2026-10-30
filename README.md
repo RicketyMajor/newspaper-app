@@ -10,7 +10,6 @@
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white">
   <img alt="AI: local only" src="https://img.shields.io/badge/AI-local%20only%20(Ollama)-1D2733">
   <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-0078D4">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-EE9B4A"></a>
 </p>
 
 <p align="center"><b>English</b> · <a href="README.es.md">Español</a></p>
@@ -230,6 +229,6 @@ ruff format --check src tests
 
 CI runs the same three on Windows for every push to `master`.
 
-## License
+## Fonts
 
-[MIT](LICENSE) © 2026 Alonso Vera. The bundled fonts (Newsreader and Atkinson Hyperlegible Next) are under the SIL Open Font License; see `src/newspaper/web/static/fonts/`.
+The bundled fonts (Newsreader and Atkinson Hyperlegible Next) are under the SIL Open Font License; see `src/newspaper/web/static/fonts/`.
