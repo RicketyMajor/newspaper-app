@@ -127,6 +127,22 @@ def test_draft_drops_a_heading_before_the_body():
     assert body == "Miles protestaron.\n\n# Otro"  # only the leading one
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("# El Festival Verdi abrió en Parma.", "El Festival Verdi abrió en Parma."),  # no break
+        ("— El texto.", "El texto."),  # the outlet's lead-in dash
+        ("[CIPER] — El texto.", "El texto."),
+    ],
+)
+def test_draft_drops_a_glued_heading_mark_and_a_leading_dash(body, expected):
+    def handler(request):
+        content = {"headline": "t", "dek": "", "body": body, "differences": ""}
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    assert ollama_with(handler).draft([("CIPER", "t", "x")], "es").body == expected
+
+
 def test_draft_with_invalid_json_is_a_note_level_error():
     def handler(request):
         return httpx.Response(200, json={"message": {"content": "not json"}})

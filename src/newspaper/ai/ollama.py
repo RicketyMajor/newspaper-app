@@ -97,7 +97,9 @@ Temas:
 
 _QUOTED = re.compile(r'"([^"\n]*)"')
 _OUTLET_TAG = re.compile(r"^\[[^\]\n]{1,40}\]\s*")
-_LEADING_HEADING = re.compile(r"^#{1,6}[ \t][^\n]*\n+")
+# The whole heading line; just the mark when the body has no break after it (#19).
+_LEADING_HEADING = re.compile(r"^#{1,6}[ \t]+(?:[^\n]*\n+)?")
+_LEADING_DASH = re.compile(r"^—\s*")  # the outlet's lead-in, «— El texto» (#19)
 
 
 def _no_straight_quotes(text: str) -> str:
@@ -169,7 +171,8 @@ class Ollama:
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
             raise OllamaError(f"draft: JSON inválido ({e})") from e
         # It mimics the material's outlet headers, and sometimes opens with a title anyway.
-        draft.body = _LEADING_HEADING.sub("", _OUTLET_TAG.sub("", draft.body))
+        for leading in (_OUTLET_TAG, _LEADING_HEADING, _LEADING_DASH):
+            draft.body = leading.sub("", draft.body)
         return draft
 
     def classify(self, text: str, topics: list[str]) -> str:
