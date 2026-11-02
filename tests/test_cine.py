@@ -136,11 +136,46 @@ def test_encartelera_without_movies_is_an_error():
 
 def test_readers_fetch_their_page_and_name_the_venue():
     http = site()
-    names = [cine.reader(v)(http, TODAY)[0] for v in ("normandie", "alameda", "ceina")]
+    names = [cine.read(http, v, TODAY)[0] for v in ("normandie", "alameda", "ceina")]
     assert names == ["Normandie", "Centro Arte Alameda · sala CEINA", "CEINA · escenario"]
-    assert cine.reader("cineteca")(http, TODAY) == ("cineteca", [])  # not in the fixture
+    assert cine.read(http, "cineteca", TODAY) == (None, [])  # not in the fixture: no name
     with pytest.raises(httpx.HTTPStatusError):
-        cine.reader("normandie")(site(fail={cine.NORMANDIE_URL}), TODAY)
+        cine.read(site(fail={cine.NORMANDIE_URL}), "normandie", TODAY)
+
+
+def test_normandie_a_heading_that_is_no_day_closes_the_day():
+    # Review: «Otras funciones» or «Jueves 5 de noviembre» left B and C on Wednesday the 4th.
+    content = (
+        '<h5>Miércoles 4</h5>15:00 hrs.<br><a href="https://x.test/a">A</a>'
+        '<h5>Jueves 5 de noviembre</h5>18:00 hrs.<br><a href="https://x.test/b">B</a>'
+        '<h4>Otras funciones</h4>20:00 hrs.<br><a href="https://x.test/c">C</a>'
+    )
+    shows = cine.parse_normandie(content, TODAY)
+    assert [(s.day, s.title) for s in shows] == [(date(2026, 11, 4), "A")]
+
+
+def test_normandie_days_without_a_single_show_is_an_error():
+    # «15.00 hrs.»: a new way of writing the hours must keep the old shows, not empty the board.
+    with pytest.raises(ValueError, match="ninguna función"):
+        cine.parse_normandie(
+            '<h5>Lunes 2</h5>15.00 hrs.<br><a href="https://x.test/a">A</a>', TODAY
+        )
+
+
+def test_links_are_web_addresses_and_nothing_else():
+    assert cine.web_url("https://x.test/a?b=1") == "https://x.test/a?b=1"
+    for bad in ("javascript:alert(1)", "https://x\x00y", "https://x y", "ftp://x.test", None):
+        assert cine.web_url(bad) is None  # a NUL made os.startfile crash the TUI
+
+
+def test_a_page_too_big_or_too_slow_is_refused(monkeypatch):
+    big = httpx.Response(200, content=b"<article>" + b"x" * (513 * 1024))
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: big))
+    with pytest.raises(ValueError, match="512 KB"):
+        cine.read(http, "ceina", TODAY)
+    monkeypatch.setattr(cine, "READ_FOR", -1)  # the deadline already passed
+    with pytest.raises(TimeoutError):
+        cine.read(site(), "ceina", TODAY)
 
 
 NOW = datetime(2026, 11, 1, 12, 0)  # naive UTC: 09:00 of 1 Nov in Santiago, like TODAY
@@ -235,8 +270,61 @@ def test_a_time_that_is_not_one_is_stored_without_it(engine, cine_config):
         assert sorted((x.title, x.time) for x in shows) == [("Medianoche", None), ("Nine", "15:00")]
 
 
-def test_ingest_reads_the_cinemas_first_and_never_fails_for_them(engine, cine_config):
-    # The feeds are down (404 in `site`), so ingest raises, but only after the cinemas.
+def test_the_attempt_is_recorded_before_reading(engine, cine_config):
+    # Killed mid-read (the task's time limit), a run must wait its 3 hours, and say so.
+    during = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with Session(engine) as s:
+            row = s.get(CinemaVenue, "normandie")
+            during.append((row.checked_at, row.error))
+        return httpx.Response(200, content=(FIXTURES / PAGES[str(request.url)]).read_bytes())
+
+    cine.refresh_cine(
+        engine, cine_config, httpx.Client(transport=httpx.MockTransport(handler)), NOW
+    )
+    assert during[0] == (NOW, "La lectura no terminó.")
+    with Session(engine) as s:
+        assert s.get(CinemaVenue, "normandie").error is None
+
+
+def test_encartelera_is_read_once_for_all_its_cinemas(engine, config):
+    seen = []
+    both = config.model_copy(update={"cine": CineConfig(salas=["alameda", "biografo"])})
+    cine.refresh_cine(engine, both, site(seen=seen), NOW)
+    assert seen == [cine.ENCARTELERA_URL]
+
+
+def test_a_read_without_shows_keeps_the_name_it_had(engine, config):
+    cineuc = config.model_copy(update={"cine": CineConfig(salas=["cineuc"])})
+    with Session(engine) as s, s.begin():
+        s.add(CinemaVenue(venue="cineuc", name="Cine UC", checked_at=NOW))
+    cine.refresh_cine(engine, cineuc, site(), NOW + timedelta(hours=4))  # none in the fixture
+    with Session(engine) as s:
+        assert s.get(CinemaVenue, "cineuc").name == "Cine UC"
+
+
+def test_control_characters_never_reach_the_base(engine, cine_config):
+    # An ESC in a title or an error would reach the terminal (TUI, status): OSC 52, clear screen.
+    content = '<h5>Lunes 2</h5>15:00 hrs.<br><a href="https://x.test/a">Nine&#27;[2J</a>'
+    page = json.dumps([{"content": {"rendered": content}}]).encode()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == cine.NORMANDIE_URL:
+            return httpx.Response(200, content=page)
+        return httpx.Response(404)  # httpx's message has a second line, a help link
+
+    cine.refresh_cine(
+        engine, cine_config, httpx.Client(transport=httpx.MockTransport(handler)), NOW
+    )
+    with Session(engine) as s:
+        assert s.scalar(select(Screening.title)) == "Nine[2J"
+        error = s.get(CinemaVenue, "ceina").error
+        assert "404" in error and "\n" not in error
+
+
+def test_ingest_reads_the_cinemas_even_when_the_feeds_fail(engine, cine_config):
+    # The feeds are down (404 in `site`): ingest raises, but the cinemas were read.
     with pytest.raises(RuntimeError, match="Ninguna fuente"):
         ingest(engine, cine_config, site(fail={cine.CEINA_URL}))
     with Session(engine) as s:

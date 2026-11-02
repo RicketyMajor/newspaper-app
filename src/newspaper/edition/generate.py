@@ -193,9 +193,17 @@ def ingest(engine: Engine, config: NewspaperConfig, http: httpx.Client) -> tuple
     """Fetch every active feed and store its new articles: (how many were new, feed errors).
     Safe while another process ingests (`fetch` and `generate` may overlap): a URL already
     stored, or listed twice, is skipped.
-    Also refreshes the cinemas' showtimes when they are due (refresh_cine)."""
-    # First, and never failing: ingest raises below when every feed is down (#29).
-    refresh_cine(engine, config, http)
+    Then the cinemas' showtimes, when due (#29; refresh_cine never raises): last, so a slow
+    cinema page never holds up the articles, and also when every feed is down."""
+    try:
+        return _ingest_feeds(engine, config, http)
+    finally:
+        refresh_cine(engine, config, http)
+
+
+def _ingest_feeds(
+    engine: Engine, config: NewspaperConfig, http: httpx.Client
+) -> tuple[int, list[str]]:
     feeds = config.active_feeds
     if not feeds:
         raise RuntimeError("No hay fuentes activas en newspaper.toml.")
