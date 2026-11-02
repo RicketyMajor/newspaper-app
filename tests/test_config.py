@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from newspaper.cli import main
 from newspaper.config.loader import EXAMPLE_CONFIG, append_feed, find_config_path, load_config
-from newspaper.config.models import FeedConfig, InterestsConfig, NewspaperConfig
+from newspaper.config.models import CineConfig, FeedConfig, InterestsConfig, NewspaperConfig
 
 
 def test_example_config_loads():
@@ -127,3 +127,13 @@ def test_interests_are_optional_and_reject_contradictions():
         NewspaperConfig(interests={"like": ["música"], "dislike": ["música"]})
     with pytest.raises(ValidationError):
         NewspaperConfig(interests={"like": ["  "]})
+
+
+def test_cine_takes_slugs_once(tmp_path):
+    base = {"storage": {"database_path": tmp_path / "n.db"}}
+    assert NewspaperConfig(**base).cine.salas == []
+    salas = ["normandie", "alameda", "ceina"]
+    assert NewspaperConfig(**base, cine={"salas": salas}).cine.salas == salas
+    for bad in (["Normandie"], ["sala k"], ["normandie", "normandie"]):
+        with pytest.raises(ValidationError):
+            NewspaperConfig(**base, cine=CineConfig(salas=bad))

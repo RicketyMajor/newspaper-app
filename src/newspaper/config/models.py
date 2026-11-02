@@ -81,12 +81,38 @@ class InterestsConfig(BaseModel):
         return self
 
 
+# The cinemas with a name of their own (the user's, 2026-11-01). Any other encartelera.cl slug
+# takes the site's name once read.
+CINEMA_NAMES = {
+    "normandie": "Normandie",
+    "alameda": "Centro Arte Alameda · sala CEINA",
+    "ceina": "CEINA · escenario",
+}
+
+
+class CineConfig(BaseModel):
+    """Cinemas whose showtimes the web and the TUI show (#29): `normandie` and `ceina` have
+    readers of their own; any other word is a cinema of encartelera.cl (`alameda`…)."""
+
+    salas: list[str] = []
+
+    @model_validator(mode="after")
+    def _slugs(self) -> "CineConfig":
+        for venue in self.salas:
+            if not re.fullmatch(r"[a-z0-9-]+", venue):
+                raise ValueError(f"[cine]: sala inválida {venue!r} (solo a-z, 0-9 y -)")
+        if len(set(self.salas)) != len(self.salas):
+            raise ValueError("[cine]: hay una sala repetida")
+        return self
+
+
 class NewspaperConfig(BaseModel):
     general: GeneralConfig = Field(default_factory=GeneralConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     edition: EditionConfig = Field(default_factory=EditionConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     interests: InterestsConfig = Field(default_factory=InterestsConfig)
+    cine: CineConfig = Field(default_factory=CineConfig)
     feeds: list[FeedConfig] = Field(default_factory=list)
     path: Path | None = Field(default=None, exclude=True)  # file it was loaded from
 
