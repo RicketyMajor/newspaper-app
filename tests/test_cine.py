@@ -1,11 +1,17 @@
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
+from newspaper.config.models import CineConfig
+from newspaper.edition.generate import ingest
 from newspaper.ingestion import cine
+from newspaper.storage import queries
+from newspaper.storage.models import CinemaVenue, Screening
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TODAY = date(2026, 11, 1)  # the day the fixtures were saved
@@ -135,3 +141,110 @@ def test_readers_fetch_their_page_and_name_the_venue():
     assert cine.reader("cineteca")(http, TODAY) == ("cineteca", [])  # not in the fixture
     with pytest.raises(httpx.HTTPStatusError):
         cine.reader("normandie")(site(fail={cine.NORMANDIE_URL}), TODAY)
+
+
+NOW = datetime(2026, 11, 1, 12, 0)  # naive UTC: 09:00 of 1 Nov in Santiago, like TODAY
+
+
+@pytest.fixture
+def cine_config(config):
+    return config.model_copy(update={"cine": CineConfig(salas=["normandie", "ceina"])})
+
+
+def count(s: Session, venue: str) -> int:
+    return s.scalar(select(func.count()).select_from(Screening).where(Screening.venue == venue))
+
+
+def test_refresh_stores_each_venue(engine, cine_config):
+    cine.refresh_cine(engine, cine_config, site(), NOW)
+    with Session(engine) as s:
+        assert (count(s, "normandie"), count(s, "ceina")) == (28, 18)
+        normandie = s.get(CinemaVenue, "normandie")
+        assert (normandie.name, normandie.ok_at, normandie.error) == ("Normandie", NOW, None)
+        assert s.get(CinemaVenue, "ceina").name == "CEINA · escenario"
+
+
+def test_a_working_reader_replaces_its_shows(engine, cine_config):
+    cine.refresh_cine(engine, cine_config, site(), NOW)
+    with Session(engine) as s, s.begin():
+        s.add(Screening(venue="normandie", day=TODAY, time="23:00", title="Ya no está"))
+    cine.refresh_cine(engine, cine_config, site(), NOW + timedelta(hours=4))
+    with Session(engine) as s:
+        assert count(s, "normandie") == 28
+        assert s.scalar(select(Screening).where(Screening.title == "Ya no está")) is None
+
+
+def test_a_failing_reader_keeps_its_shows_and_records_why(engine, cine_config):
+    cine.refresh_cine(engine, cine_config, site(), NOW)
+    later = NOW + timedelta(hours=4)
+    cine.refresh_cine(engine, cine_config, site(fail={cine.CEINA_URL}), later)
+    with Session(engine) as s:
+        assert count(s, "ceina") == 18
+        ceina = s.get(CinemaVenue, "ceina")
+        assert (ceina.ok_at, ceina.checked_at) == (NOW, later)
+        assert "500" in ceina.error
+        assert s.get(CinemaVenue, "normandie").ok_at == later
+
+
+def test_refresh_waits_three_hours_unless_a_venue_is_new(engine, cine_config):
+    seen = []
+    cine.refresh_cine(engine, cine_config, site(seen=seen), NOW)
+    assert len(seen) == 2
+    cine.refresh_cine(engine, cine_config, site(seen=seen), NOW + timedelta(hours=2, minutes=59))
+    assert len(seen) == 2
+    more = cine_config.model_copy(
+        update={"cine": CineConfig(salas=["normandie", "ceina", "alameda"])}
+    )
+    cine.refresh_cine(engine, more, site(seen=seen), NOW + timedelta(hours=1))  # alameda is new
+    assert len(seen) == 5
+    cine.refresh_cine(engine, more, site(seen=seen), NOW + timedelta(hours=4, minutes=1))
+    assert len(seen) == 8
+
+
+def test_refresh_never_raises_and_does_nothing_without_cine(engine, config, cine_config):
+    seen = []
+    cine.refresh_cine(engine, config, site(seen=seen), NOW)
+    assert seen == []
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("sin red", request=request)
+
+    cine.refresh_cine(engine, cine_config, httpx.Client(transport=httpx.MockTransport(down)), NOW)
+    with Session(engine) as s:
+        assert "sin red" in s.get(CinemaVenue, "normandie").error
+        assert s.get(CinemaVenue, "normandie").ok_at is None
+
+
+def test_ingest_reads_the_cinemas_first_and_never_fails_for_them(engine, cine_config):
+    # The feeds are down (404 in `site`), so ingest raises, but only after the cinemas.
+    with pytest.raises(RuntimeError, match="Ninguna fuente"):
+        ingest(engine, cine_config, site(fail={cine.CEINA_URL}))
+    with Session(engine) as s:
+        assert s.get(CinemaVenue, "normandie").error is None
+        assert "500" in s.get(CinemaVenue, "ceina").error
+
+
+def test_the_board_lists_each_venue_in_order_timed_shows_first(engine):
+    day = date(2026, 11, 2)
+    with Session(engine) as s, s.begin():
+        s.add_all(
+            [
+                Screening(venue="ceina", day=day, time=None, title="Vínculo(s)"),
+                Screening(venue="normandie", day=day, time="20:00", title="El odio"),
+                Screening(venue="normandie", day=day, time="15:00", title="Nine"),
+                Screening(
+                    venue="normandie", day=day + timedelta(days=1), time="15:00", title="Otro día"
+                ),
+                CinemaVenue(venue="normandie", name="Normandie", checked_at=NOW, ok_at=NOW),
+            ]
+        )
+    with Session(engine) as s:
+        board = queries.cinema_board(s, ["normandie", "alameda", "ceina"], day)
+        assert [(b.venue, b.name) for b in board] == [
+            ("normandie", "Normandie"),
+            ("alameda", "Centro Arte Alameda · sala CEINA"),  # never read: the fixed name
+            ("ceina", "CEINA · escenario"),
+        ]
+        assert [x.title for x in board[0].shows] == ["Nine", "El odio"]
+        assert (board[1].shows, board[1].status) == ([], None)
+        assert [x.title for x in board[2].shows] == ["Vínculo(s)"]

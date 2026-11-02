@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..ai.ollama import NEUTRAL_TOPICS, Draft, Ollama, OllamaError, OllamaUnavailableError
 from ..config.models import InterestsConfig, NewspaperConfig
+from ..ingestion.cine import refresh_cine
 from ..ingestion.extract import extract_many
 from ..ingestion.rss import fetch_feed, make_client
 from ..processing.cluster import cluster
@@ -191,7 +192,10 @@ def _drop_notes(s: Session, edition: Edition) -> None:
 def ingest(engine: Engine, config: NewspaperConfig, http: httpx.Client) -> tuple[int, list[str]]:
     """Fetch every active feed and store its new articles: (how many were new, feed errors).
     Safe while another process ingests (`fetch` and `generate` may overlap): a URL already
-    stored, or listed twice, is skipped."""
+    stored, or listed twice, is skipped.
+    Also refreshes the cinemas' showtimes when they are due (refresh_cine)."""
+    # First, and never failing: ingest raises below when every feed is down (#29).
+    refresh_cine(engine, config, http)
     feeds = config.active_feeds
     if not feeds:
         raise RuntimeError("No hay fuentes activas en newspaper.toml.")

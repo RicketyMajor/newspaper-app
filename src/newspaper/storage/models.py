@@ -138,3 +138,30 @@ class PushSubscription(Base):
     mobile: Mapped[bool] = mapped_column(default=False)  # only the phone fills the funnel
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     gone_at: Mapped[datetime | None]  # the push service answered 404/410: renew, don't send
+
+
+class Screening(Base):
+    """One showtime of a configured cinema (#29). A cinema's rows are replaced on each good
+    read, so the table holds only what each one publishes now."""
+
+    __tablename__ = "screenings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue: Mapped[str] = mapped_column(String(60), index=True)  # the word in [cine] salas
+    day: Mapped[date] = mapped_column(Date)  # local, as the cinema says it
+    time: Mapped[str | None] = mapped_column(String(5))  # "HH:MM"; None: the day only
+    title: Mapped[str] = mapped_column(String(300))
+    note: Mapped[str | None] = mapped_column(String(300))  # presenter, cycle or category
+    url: Mapped[str | None] = mapped_column(String(2000))  # tickets, else the event's page
+
+
+class CinemaVenue(Base):
+    """The last read of each cinema's listings (#29): a failure keeps its shows and says so."""
+
+    __tablename__ = "cinema_venues"
+
+    venue: Mapped[str] = mapped_column(String(60), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    checked_at: Mapped[datetime]  # the last attempt
+    ok_at: Mapped[datetime | None]  # the last good read
+    error: Mapped[str | None] = mapped_column(Text)  # the last attempt's, None when it worked

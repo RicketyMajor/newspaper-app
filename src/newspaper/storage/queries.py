@@ -10,7 +10,8 @@ from typing import Literal
 from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
-from .models import Article, Edition, EditionStatus, Note
+from ..config.models import CINEMA_NAMES
+from .models import Article, CinemaVenue, Edition, EditionStatus, Note, Screening
 
 Kind = Literal["note", "article"]
 Flag = Literal["read", "favorite", "saved"]
@@ -27,6 +28,36 @@ class SearchHit:
     snippet: str
     day: date | None = None  # notes only: their edition and section
     section: str | None = None
+
+
+@dataclass(frozen=True)
+class CinemaDay:
+    venue: str
+    name: str
+    status: CinemaVenue | None  # None: never read yet
+    shows: list[Screening]
+
+
+def cinema_board(s: Session, venues: list[str], day: date) -> list[CinemaDay]:
+    """Each configured cinema's shows on `day`, in the TOML's order: timed shows by time, then
+    those with the day only."""
+    rows = s.scalars(
+        select(Screening)
+        .where(Screening.venue.in_(venues), Screening.day == day)
+        .order_by(Screening.time.is_(None), Screening.time, Screening.title)
+    ).all()
+    status = {
+        v.venue: v for v in s.scalars(select(CinemaVenue).where(CinemaVenue.venue.in_(venues)))
+    }
+    return [
+        CinemaDay(
+            venue,
+            status[venue].name if venue in status else CINEMA_NAMES.get(venue, venue),
+            status.get(venue),
+            [r for r in rows if r.venue == venue],
+        )
+        for venue in venues
+    ]
 
 
 _READY = select(Edition).where(Edition.status == EditionStatus.ready)

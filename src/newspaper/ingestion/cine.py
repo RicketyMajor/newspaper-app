@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import contextlib
 import html
 import json
 import re
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date, timedelta
+from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
+from sqlalchemy import Engine, delete, select
+from sqlalchemy.orm import Session
 
-from ..config.models import CINEMA_NAMES
+from ..config.models import CINEMA_NAMES, NewspaperConfig
 from ..dates import DAYS, MONTHS
+from ..edition.today import local_today
+from ..storage.models import CinemaVenue, Screening, utcnow
 
 NORMANDIE_URL = "https://normandie.cl/wp-json/wp/v2/pages?slug=cartelera&_fields=content"
 CEINA_URL = "https://ceina.cl/cartelera/"
@@ -220,3 +225,59 @@ def encartelera(slug: str) -> Reader:
 
 def reader(venue: str) -> Reader:
     return {"normandie": normandie, "ceina": ceina}.get(venue) or encartelera(venue)
+
+
+# --- Storing them ----------------------------------------------------------------------------
+
+REFRESH_EVERY = timedelta(hours=3)  # polite with encartelera (~1.4 MB a read)
+
+
+def _due(engine: Engine, venues: list[str], now: datetime) -> bool:
+    with Session(engine) as s:
+        checked = dict(
+            s.execute(
+                select(CinemaVenue.venue, CinemaVenue.checked_at).where(
+                    CinemaVenue.venue.in_(venues)
+                )
+            ).all()
+        )
+    return len(checked) < len(venues) or now - min(checked.values()) >= REFRESH_EVERY
+
+
+def _replace(engine: Engine, venue: str, name: str, shows: list[Show], now: datetime) -> None:
+    with Session(engine) as s, s.begin():
+        s.execute(delete(Screening).where(Screening.venue == venue))
+        s.add_all(Screening(venue=venue, **asdict(show)) for show in shows)
+        s.merge(CinemaVenue(venue=venue, name=name, checked_at=now, ok_at=now, error=None))
+
+
+def _failed(engine: Engine, venue: str, error: str, now: datetime) -> None:
+    with Session(engine) as s, s.begin():
+        row = s.get(CinemaVenue, venue) or CinemaVenue(
+            venue=venue, name=CINEMA_NAMES.get(venue, venue)
+        )
+        row.checked_at, row.error = now, error[:500]
+        s.add(row)
+
+
+def refresh_cine(
+    engine: Engine, config: NewspaperConfig, http: httpx.Client, now: datetime | None = None
+) -> None:
+    """Read every configured cinema again when the oldest read is 3 h old, or one was never
+    read. Never raises (it runs inside `ingest`): a failure keeps that cinema's shows and
+    records why in cinema_venues."""
+    venues = config.cine.salas
+    now = now or utcnow()
+    try:
+        if not venues or not _due(engine, venues, now):
+            return
+    except Exception:  # a locked database: the next fetch tries again
+        return
+    today = local_today(config, now.replace(tzinfo=UTC))
+    for venue in venues:
+        try:
+            name, shows = reader(venue)(http, today)
+            _replace(engine, venue, name, shows, now)
+        except Exception as e:
+            with contextlib.suppress(Exception):  # the database itself may be what failed
+                _failed(engine, venue, str(e) or type(e).__name__, now)
