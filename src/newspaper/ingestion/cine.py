@@ -9,7 +9,7 @@ import re
 import unicodedata
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import httpx
 from sqlalchemy import Engine, delete, select
@@ -244,10 +244,21 @@ def _due(engine: Engine, venues: list[str], now: datetime) -> bool:
     return len(checked) < len(venues) or now - min(checked.values()) >= REFRESH_EVERY
 
 
+def clock(hhmm: str | None) -> str | None:
+    """A show's time only if it is one: a hand-written «24:00 hrs.» would break /cine and the
+    whole copy without the PC. The show stays, with the day only."""
+    try:
+        return time.fromisoformat(hhmm).strftime("%H:%M") if hhmm else None
+    except ValueError:
+        return None
+
+
 def _replace(engine: Engine, venue: str, name: str, shows: list[Show], now: datetime) -> None:
     with Session(engine) as s, s.begin():
         s.execute(delete(Screening).where(Screening.venue == venue))
-        s.add_all(Screening(venue=venue, **asdict(show)) for show in shows)
+        s.add_all(
+            Screening(venue=venue, **(asdict(show) | {"time": clock(show.time)})) for show in shows
+        )
         s.merge(CinemaVenue(venue=venue, name=name, checked_at=now, ok_at=now, error=None))
 
 

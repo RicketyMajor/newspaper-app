@@ -215,6 +215,26 @@ def test_refresh_never_raises_and_does_nothing_without_cine(engine, config, cine
         assert s.get(CinemaVenue, "normandie").ok_at is None
 
 
+def test_a_time_that_is_not_one_is_stored_without_it(engine, cine_config):
+    # A hand-written «24:00 hrs.» would break /cine and the whole copy without the PC.
+    content = (
+        '<h5>Lunes 2</h5>24:00 hrs.<br><a href="https://x.test/a">Medianoche</a>'
+        '<hr>15:00 hrs.<br><a href="https://x.test/b">Nine</a>'
+    )
+    page = json.dumps([{"content": {"rendered": content}}]).encode()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == cine.NORMANDIE_URL:
+            return httpx.Response(200, content=page)
+        return httpx.Response(200, content=(FIXTURES / "cine_ceina.html").read_bytes())
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    cine.refresh_cine(engine, cine_config, http, NOW)
+    with Session(engine) as s:
+        shows = s.scalars(select(Screening).where(Screening.venue == "normandie")).all()
+        assert sorted((x.title, x.time) for x in shows) == [("Medianoche", None), ("Nine", "15:00")]
+
+
 def test_ingest_reads_the_cinemas_first_and_never_fails_for_them(engine, cine_config):
     # The feeds are down (404 in `site`), so ingest raises, but only after the cinemas.
     with pytest.raises(RuntimeError, match="Ninguna fuente"):

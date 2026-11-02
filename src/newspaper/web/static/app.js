@@ -443,3 +443,13 @@ if (shows.length) {
   dim();
   setInterval(dim, 60000);
 }
+
+// Left open overnight, the installed app resumes yesterday's board under «Hoy»: back in it on
+// another day, it reloads. "sv-SE" writes the date as YYYY-MM-DD. A copy never reloads itself.
+const boardDay = document.querySelector("[data-dia]")?.dataset.dia;
+if (boardDay && !copy) {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (new Date().toLocaleDateString("sv-SE") !== boardDay) location.reload();
+  });
+}

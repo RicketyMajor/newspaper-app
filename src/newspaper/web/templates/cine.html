@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Cine · {{ paper }}{% endblock %}
 {% block content %}
-<h1 class="page-title">Cine</h1>
+{# data-dia: back in the app on another day, app.js reloads the board so «Hoy» is today. #}
+<h1 class="page-title" data-dia="{{ board[0][1] }}">Cine</h1>
 {% for label, day, venues in board %}
 <section class="cine-day" aria-labelledby="dia-{{ loop.index }}">
   <h2 id="dia-{{ loop.index }}">{{ label }} <span>{{ day|long_date|capitalize }}</span></h2>

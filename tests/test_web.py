@@ -488,6 +488,7 @@ def test_cine_shows_today_and_tomorrow_by_venue(cine_client, engine, config):
     # An instant with the cinema's offset: a device in another zone dims it at the right time.
     start = datetime.combine(today, time(15), ZoneInfo(config.general.timezone)).isoformat()
     assert f'data-start="{start}"' in html
+    assert f'data-dia="{today}"' in html  # app.js reloads a board left open overnight
     assert 'href="https://www.flow.cl/btn.php?token=x"' in html
     assert 'href="/cine" aria-current="page"' in html
 
