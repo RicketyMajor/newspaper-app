@@ -2,12 +2,14 @@
 
 import base64
 import functools
+import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -137,6 +139,17 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     templates.env.filters["es_list"] = lambda items: " y ".join(
         [", ".join(items[:-1]), items[-1]] if len(items) > 1 else items
     )
+    zone = ZoneInfo(config.general.timezone)
+
+    def since(moment: datetime) -> str:
+        """A naive UTC moment as the reader says it: «las 06:02», or «el 31/10 a las 06:02»."""
+        local = moment.replace(tzinfo=UTC).astimezone(zone)
+        if local.date() == local_today(config):
+            return f"las {local:%H:%M}"
+        return f"el {local.day}/{local.month} a las {local:%H:%M}"
+
+    templates.env.filters["since"] = since
+    templates.env.globals["cine"] = bool(config.cine.salas)  # the tab (#29)
 
     def db():
         with Session(engine) as s:
@@ -171,6 +184,12 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 **context,
             },
         )
+
+    def cine_board(s: Session) -> list[tuple[str, date, list[queries.CinemaDay]]]:
+        """Today's and tomorrow's shows of each configured cinema (#29)."""
+        today = local_today(config)
+        days = (("Hoy", today), ("Mañana", today + timedelta(days=1)))
+        return [(label, d, queries.cinema_board(s, config.cine.salas, d)) for label, d in days]
 
     def opened(response: HTMLResponse, request: Request, *objs) -> HTMLResponse:
         """Record the first opening of editions and notes. Only real navigations count (not
@@ -417,6 +436,12 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def saved_moved():
         return RedirectResponse("/guardado?f=guardados", 301)
 
+    @app.get("/cine", response_class=HTMLResponse)
+    def cinema(request: Request, s: DB):
+        if not config.cine.salas:
+            raise HTTPException(404, "No hay cartelera configurada")
+        return render(request, s, "cine.html", board=cine_board(s))
+
     @app.get("/estado")
     def status(s: DB):
         today = queries.today_edition(s, local_today(config))
@@ -454,13 +479,32 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
         finished = edition.finished_at.isoformat() if edition.finished_at else ""
         stamp = f"{edition.id}|{finished}"
+        # The cinema page (#29): its mark changes with the shows and errors it shows, not with
+        # each 3-hour read that found the same.
+        cine_pages, cine_mark = [], ""
+        if config.cine.salas:
+            shown = [
+                (d, b.venue, b.status.error if b.status else None,
+                 [(x.time, x.title, x.note, x.url) for x in b.shows])
+                for _, d, venues in cine_board(s) for b in venues
+            ]  # fmt: skip
+            cine_pages = ["/cine"]
+            cine_mark = "|c:" + hashlib.sha256(repr(shown).encode()).hexdigest()[:12]
         return {
-            "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}",
+            "revision": (
+                f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine_mark}"
+            ),
             "edition": stamp,
             "day": day,
             "pages": [f"/e/{day}"]
             + [f"/n/{n.id}" for n in core + rest]
-            + [f"/fin/{day}", "/guardado", "/guardado?f=favoritos", "/guardado?f=guardados"]
+            + [
+                f"/fin/{day}",
+                "/guardado",
+                "/guardado?f=favoritos",
+                "/guardado?f=guardados",
+                *cine_pages,
+            ]
             + [f"/n/{n.id}" for n in older],
             "static": [
                 f"/static/style.css?v={v}",

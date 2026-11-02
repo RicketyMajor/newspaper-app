@@ -7,8 +7,17 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from newspaper import schedule
+from newspaper.config.models import CineConfig
 from newspaper.edition.today import local_today
-from newspaper.storage.models import Article, Edition, EditionStatus, Note, utcnow
+from newspaper.storage.models import (
+    Article,
+    CinemaVenue,
+    Edition,
+    EditionStatus,
+    Note,
+    Screening,
+    utcnow,
+)
 from newspaper.web.app import create_app
 
 
@@ -409,3 +418,87 @@ def test_work_titles_in_headline_and_dek_render_in_italics_and_html_stays_escape
         assert "Película chilena <em>Hijas Únikas</em> triunfa" in html
         assert "&lt;b&gt;éxito&lt;/b&gt;" in html
     assert "<title>Película chilena Hijas Únikas triunfa ·" in page  # no asterisks in the tab
+
+
+@pytest.fixture
+def cine_client(config):
+    salas = ["normandie", "alameda", "ceina"]
+    with_cine = config.model_copy(update={"cine": CineConfig(salas=salas)})
+    return TestClient(create_app(with_cine), base_url="http://127.0.0.1:8765")
+
+
+def read_venues(s, *venues, error=None, ok=True):
+    now = utcnow()
+    names = {"normandie": "Normandie", "alameda": "Centro Arte Alameda · sala CEINA"}
+    names["ceina"] = "CEINA · escenario"
+    for v in venues:
+        s.add(
+            CinemaVenue(
+                venue=v, name=names[v], checked_at=now, ok_at=now if ok else None, error=error
+            )
+        )
+
+
+def test_cine_shows_today_and_tomorrow_by_venue(cine_client, engine, config):
+    today = local_today(config)
+    with Session(engine) as s, s.begin():
+        s.add_all(
+            [
+                Screening(venue="normandie", day=today, time="20:00", title="La haine (El odio)"),
+                Screening(
+                    venue="normandie",
+                    day=today,
+                    time="15:00",
+                    title="Nine",
+                    note="Alex Doll presenta",
+                    url="https://www.flow.cl/btn.php?token=x",
+                ),
+                Screening(venue="ceina", day=today, time=None, title="VÍNCULO(S)", note="Danza"),
+                Screening(
+                    venue="alameda",
+                    day=today + timedelta(days=1),
+                    time="16:30",
+                    title="Hangar Rojo",
+                ),
+            ]
+        )
+        read_venues(s, "normandie", "alameda", "ceina")
+    page = cine_client.get("/cine")
+    assert page.status_code == 200
+    html = page.text
+    order = [
+        ">Hoy <span",
+        "Normandie",
+        "15:00",
+        "Nine",
+        "Alex Doll presenta",
+        "20:00",
+        "La haine (El odio)",
+        "Centro Arte Alameda · sala CEINA",
+        "Sin funciones publicadas",
+        "CEINA · escenario",
+        "VÍNCULO(S)",
+        "horario en la página",
+        ">Mañana <span",
+        "Hangar Rojo",
+    ]
+    at = [html.index(x) for x in order]
+    assert at == sorted(at)
+    assert f'data-start="{today}T15:00"' in html
+    assert 'href="https://www.flow.cl/btn.php?token=x"' in html
+    assert 'href="/cine" aria-current="page"' in html
+
+
+def test_cine_says_when_a_venue_could_not_be_read(cine_client, engine):
+    with Session(engine) as s, s.begin():
+        read_venues(s, "normandie", error="Server error '500 Internal Server Error'")
+        read_venues(s, "ceina", error="sin red", ok=False)
+    html = cine_client.get("/cine").text
+    assert "No pude actualizar la cartelera desde las " in html  # read today: the hour only
+    assert "Todavía no he podido leer esta cartelera." in html  # ceina: never a good read
+    assert "Todavía no la he leído" in html  # alameda: no attempt yet
+
+
+def test_without_cine_no_tab_and_no_page(client, seeded):
+    assert client.get("/cine").status_code == 404
+    assert 'href="/cine"' not in client.get("/").text

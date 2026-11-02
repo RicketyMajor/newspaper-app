@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Cine · {{ paper }}{% endblock %}
+{% block content %}
+<h1 class="page-title">Cine</h1>
+{% for label, day, venues in board %}
+<section class="cine-day" aria-labelledby="dia-{{ loop.index }}">
+  <h2 id="dia-{{ loop.index }}">{{ label }} <span>{{ day|long_date|capitalize }}</span></h2>
+  {% for v in venues %}
+  <h3>{{ v.name }}</h3>
+  {% if v.status is none %}
+  <p class="hint">Todavía no la he leído: se lee con la próxima descarga.</p>
+  {% elif v.status.error and v.status.ok_at %}
+  <p class="hint">No pude actualizar la cartelera desde {{ v.status.ok_at|since }}.</p>
+  {% elif v.status.error %}
+  <p class="hint">Todavía no he podido leer esta cartelera.</p>
+  {% endif %}
+  <ul class="shows">
+    {% for show in v.shows %}
+    {# data-start: app.js dims what already started, also in the copy without the PC. #}
+    <li{% if show.time %} data-start="{{ day }}T{{ show.time }}"{% endif %}>
+      <span class="t">{{ show.time or '—' }}</span>
+      {% if show.url %}<a href="{{ show.url }}">{{ show.title }}</a>{% else %}<span>{{ show.title }}</span>{% endif %}
+      {% set extra = [show.note] + ([] if show.time else ['horario en la página']) %}
+      {% if extra|select|list %}<span class="m">{{ extra|select|join(' · ') }}</span>{% endif %}
+    </li>
+    {% else %}
+    <li class="hint">Sin funciones publicadas.</li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+</section>
+{% endfor %}
+{% endblock %}

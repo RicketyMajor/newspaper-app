@@ -431,3 +431,15 @@ if (copy) {
   showSinPc();
   applyMarks(JSON.parse(document.body.dataset.marcas || "{}"));
 }
+
+// The cinema page (#29): the shows that already started, dimmed. The time travels in the page,
+// so the copy without the PC dims too; "2026-11-02T15:00" parses as local time.
+const shows = document.querySelectorAll("li[data-start]");
+if (shows.length) {
+  const dim = () => {
+    const now = Date.now();
+    for (const show of shows) show.classList.toggle("past", Date.parse(show.dataset.start) <= now);
+  };
+  dim();
+  setInterval(dim, 60000);
+}

@@ -5,8 +5,17 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from newspaper import notify
+from newspaper.config.models import CineConfig
 from newspaper.edition.today import local_today
-from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription
+from newspaper.storage.models import (
+    CinemaVenue,
+    Edition,
+    EditionStatus,
+    Note,
+    PushSubscription,
+    Screening,
+    utcnow,
+)
 from newspaper.web.app import create_app
 
 from .conftest import SAME
@@ -55,6 +64,27 @@ def test_a_forced_run_and_an_upgrade_change_the_revision(client, engine, seeded,
     env = client.get("/").template.environment  # new style.css or app.js: new ?v=
     monkeypatch.setitem(env.globals, "static_v", env.globals["static_v"] + 1)
     assert revision() != forced
+
+
+def test_the_copy_carries_the_cinema_and_follows_its_shows(config, engine, seeded):
+    with_cine = config.model_copy(update={"cine": CineConfig(salas=["normandie"])})
+    client = TestClient(create_app(with_cine), base_url="http://127.0.0.1:8765")
+    today = local_today(config)
+    with Session(engine) as s, s.begin():
+        s.add(CinemaVenue(venue="normandie", name="Normandie", checked_at=utcnow(), ok_at=utcnow()))
+        s.add(Screening(venue="normandie", day=today, time="15:00", title="Nine"))
+    first = client.get("/sin-pc").json()
+    assert "/cine" in first["pages"]
+    with Session(engine) as s, s.begin():  # a read that found the same shows
+        s.get(CinemaVenue, "normandie").checked_at = utcnow() + timedelta(hours=3)
+    assert client.get("/sin-pc").json()["revision"] == first["revision"]
+    with Session(engine) as s, s.begin():
+        s.add(Screening(venue="normandie", day=today, time="20:00", title="Ran"))
+    assert client.get("/sin-pc").json()["revision"] != first["revision"]
+
+
+def test_without_cinema_the_copy_has_no_cine_page(client, seeded):
+    assert "/cine" not in client.get("/sin-pc").json()["pages"]
 
 
 def test_no_edition_no_copy(client):
