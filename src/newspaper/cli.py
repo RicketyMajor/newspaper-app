@@ -26,11 +26,11 @@ from .config.loader import (
     find_config_path,
     load_config,
 )
-from .config.models import FeedConfig, NewspaperConfig
+from .config.models import CINEMA_NAMES, FeedConfig, NewspaperConfig
 from .edition.today import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
-from .storage.models import Edition, PushSubscription
+from .storage.models import CinemaVenue, Edition, PushSubscription
 
 # ponytail: redirected output on Windows may be cp1252; replace unencodable chars, don't crash.
 for _stream in (sys.stdout, sys.stderr):
@@ -332,6 +332,25 @@ def _subscriptions(s: Session) -> str:
     return f"Avisos: {len(live)} {word} ({sum(p.mobile for p in live)} en el teléfono)"
 
 
+def _cinema(config: NewspaperConfig, s: Session) -> str:
+    """Each cinema's last good read (#29), and the error since then, cut short."""
+    zone = ZoneInfo(config.general.timezone)
+    venues = config.cine.salas
+    rows = {v.venue: v for v in s.scalars(select(CinemaVenue).where(CinemaVenue.venue.in_(venues)))}
+    parts = []
+    for venue in venues:
+        row = rows.get(venue)
+        if row is None:
+            parts.append(f"{CINEMA_NAMES.get(venue, venue)}, sin leer")
+            continue
+        ok = f"{row.ok_at.replace(tzinfo=UTC).astimezone(zone):%H:%M}" if row.ok_at else "nunca"
+        if row.error:
+            parts.append(f"{row.name}, sin actualizar desde {ok} ({row.error[:80]})")
+        else:
+            parts.append(f"{row.name}, {ok}")
+    return "Cine: " + "; ".join(parts)
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
@@ -362,3 +381,5 @@ def status(ctx: click.Context) -> None:
         if shown is not None:
             console.print(_funnel(config, shown), markup=False, highlight=False, soft_wrap=True)
         console.print(_subscriptions(s), markup=False, highlight=False)
+        if config.cine.salas:
+            console.print(_cinema(config, s), markup=False, highlight=False, soft_wrap=True)

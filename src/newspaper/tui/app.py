@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import webbrowser
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from rich.text import Text
 from sqlalchemy.orm import Session
@@ -18,7 +20,7 @@ from ..dates import long_date
 from ..edition.today import local_today, today_banner
 from ..storage import queries
 from ..storage.database import open_db
-from ..storage.models import Article, Edition, EditionStatus, Note
+from ..storage.models import Article, Edition, EditionStatus, Note, Screening
 
 FLAG_LABELS = {"read": "Leído", "favorite": "Favorito", "saved": "Guardado"}
 
@@ -61,6 +63,16 @@ def article_text(article: Article) -> Text:
     return Text.assemble(
         (marks(article) + article.title, style), "\n", (article.source_name, "dim")
     )
+
+
+def show_text(show: Screening, past: bool) -> Text:
+    """A showtime as a list row (#29): the hour, the title and its note; dim once started."""
+    note = " · ".join(x for x in (show.note, None if show.time else "horario en la página") if x)
+    style = "dim" if past else ""
+    parts = [(f"{show.time or '—':>5}  ", "dim" if past else "bold"), (show.title, style)]
+    if note:
+        parts += ["\n", (f"       {note}", "dim")]
+    return Text.assemble(*parts)
 
 
 class VimList(ListView):
@@ -147,6 +159,8 @@ class ReaderScreen(Screen):
             self.app.push_screen(EditionScreen(ref))
         elif kind == "article":
             self.reader.open_article(ref)
+        elif kind == "link" and ref:
+            webbrowser.open(ref)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, Entry):
@@ -273,6 +287,15 @@ class ListScreen(ReaderScreen):
         yield VimList(*self.items)
 
 
+class CineScreen(ListScreen):
+    """Today's and tomorrow's showtimes (#29): Enter or o opens a show's tickets or page."""
+
+    def action_open_original(self) -> None:
+        entry = self.highlighted()
+        if entry and entry.kind == "link" and entry.ref:
+            webbrowser.open(entry.ref)
+
+
 class SearchScreen(ReaderScreen):
     def compose_body(self) -> ComposeResult:
         self.sub_title = "Buscar"
@@ -311,6 +334,7 @@ class NewspaperApp(App):
         Binding("F", "flagged('favorite')", "Favoritos"),
         Binding("S", "flagged('saved')", "Guardados"),
         Binding("g", "front", "Portada"),
+        Binding("c", "cine", "Cine"),
     ]
 
     def __init__(self, config: NewspaperConfig) -> None:
@@ -323,6 +347,12 @@ class NewspaperApp(App):
 
     def session(self) -> Session:
         return Session(self.engine)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """`c` exists only with [cine] in the TOML: without it, hidden and inert."""
+        if action == "cine":
+            return bool(self.config.cine.salas)
+        return True
 
     def on_mount(self) -> None:
         self.check_today()
@@ -365,6 +395,24 @@ class NewspaperApp(App):
             items = [Entry("note", n.id, note_text(n)) for n in notes]
             items += [Entry("article", a.id, article_text(a)) for a in articles]
         self.push_screen(ListScreen("Favoritos" if flag == "favorite" else "Guardados", items))
+
+    def action_cine(self) -> None:
+        now = datetime.now(ZoneInfo(self.config.general.timezone))
+        today, hour = now.date(), f"{now:%H:%M}"
+        items: list[Entry] = []
+        with self.session() as s:
+            for label, day in (("Hoy", today), ("Mañana", today + timedelta(days=1))):
+                items.append(
+                    Entry("day", None, Text(f"{label} · {long_date(day)}", "bold reverse"))
+                )
+                for board in queries.cinema_board(s, self.config.cine.salas, day):
+                    items.append(Entry("venue", None, Text(board.name.upper(), "bold")))
+                    for show in board.shows:
+                        past = day == today and show.time is not None and show.time <= hour
+                        items.append(Entry("link", show.url, show_text(show, past)))
+                    if not board.shows:
+                        items.append(Entry("venue", None, Text("Sin funciones publicadas", "dim")))
+        self.push_screen(CineScreen("Cine", items))
 
     def action_front(self) -> None:
         self.check_today()

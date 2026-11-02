@@ -1,11 +1,15 @@
 import subprocess
 import sys
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 from textual.widgets import Input, Label, ListView
 
-from newspaper.storage.models import Article, Note
+from newspaper.config.models import CineConfig
+from newspaper.edition.today import local_today
+from newspaper.storage.models import Article, Note, Screening
 from newspaper.tui.app import (
+    CineScreen,
     EditionScreen,
     ListScreen,
     NewspaperApp,
@@ -102,6 +106,32 @@ async def test_o_on_a_listed_note_opens_its_main_source(config, seeded, monkeypa
     async with app.run_test() as pilot:
         await pilot.press("o")
     assert opened == ["https://news.test/1"]
+
+
+async def test_c_opens_the_cinema_and_o_opens_a_show(config, engine, monkeypatch):
+    with_cine = config.model_copy(update={"cine": CineConfig(salas=["normandie"])})
+    url = "https://www.flow.cl/btn.php?token=x"
+    tomorrow = local_today(config) + timedelta(days=1)
+    with Session(engine) as s, s.begin():
+        s.add(Screening(venue="normandie", day=tomorrow, time="15:00", title="Nine", url=url))
+    opened = []
+    monkeypatch.setattr("newspaper.tui.app.webbrowser.open", opened.append)
+    app = NewspaperApp(with_cine)
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        assert isinstance(app.screen, CineScreen)
+        kinds = [kind for kind, _ in entries(app.screen)]
+        assert ("link", url) in entries(app.screen)
+        app.screen.query_one(ListView).index = kinds.index("link")
+        await pilot.press("o")
+    assert opened == [url]
+
+
+async def test_without_cine_c_does_nothing(config, seeded):
+    app = NewspaperApp(config)
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        assert isinstance(app.screen, EditionScreen)
 
 
 def test_interest_label_in_note_lists():

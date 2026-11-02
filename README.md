@@ -47,6 +47,7 @@ Everything runs on your own computer. The language models run in [Ollama](https:
 - **Reading without the PC**: when the notice arrives, the phone app keeps a read-only copy of the edition, so you can read while the PC sleeps.
 - **Your interests**: optional "like" and "dislike" phrases; the local model tags each event with one of them, and the edition is ordered accordingly.
 - **Per-feed rules**: drop or reroute articles by URL or title (`exclude`, `route`).
+- **Today's showtimes** (optional): today's and tomorrow's screenings of your cinemas in a "Cine" tab (and `c` in the terminal reader), read from their pages at most every 3 hours: Cine Arte Normandie, the CEINA's stage, or any cinema listed on [encartelera.cl](https://www.encartelera.cl).
 
 ## Screenshots
 

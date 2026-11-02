@@ -35,6 +35,13 @@ database_path = "~/.newspaper/newspaper.db"
 # like = ["inteligencia artificial", "libros y literatura"]
 # dislike = ["farándula y celebridades", "fútbol y deportes"]
 
+# Optional: today's and tomorrow's showtimes in a "Cine" tab of the web (and `c` in the TUI),
+# read at most every 3 hours. `normandie` (Cine Arte Normandie) and `ceina` (the CEINA's stage)
+# have readers of their own; any other word is a cinema listed on https://www.encartelera.cl
+# (alameda = Centro Arte Alameda, cineteca, biografo, salak…).
+# [cine]
+# salas = ["normandie", "alameda", "ceina"]
+
 # =============================================================================
 # Feeds — sections are taken from `section`, in order of first appearance.
 # Feeds are RSS 2.0, Atom or RDF (the only `type` for now, so it can be left out).

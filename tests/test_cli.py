@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from newspaper import schedule
 from newspaper.cli import main
 from newspaper.edition.generate import GenerateResult
-from newspaper.storage.models import Note, PushSubscription
+from newspaper.storage.models import CinemaVenue, Note, PushSubscription
 
 
 def write_config(tmp_path, db_path, extra=""):
@@ -250,6 +250,28 @@ def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded)
         " · 0 de 2 esenciales leídas"
     ) in result.output
     assert "Avisos: 1 suscripción (1 en el teléfono)" in result.output
+
+
+def test_status_shows_each_cinema(tmp_path, engine):
+    read = datetime(2026, 11, 1, 9, 2)  # UTC: 06:02 in Santiago
+    with Session(engine) as s, s.begin():
+        s.add(CinemaVenue(venue="normandie", name="Normandie", checked_at=read, ok_at=read))
+        s.add(
+            CinemaVenue(
+                venue="ceina", name="CEINA · escenario", checked_at=datetime(2026, 11, 1, 12),
+                ok_at=read, error="Server error '500 Internal Server Error' for url 'x'",
+            )
+        )  # fmt: skip
+    salas = '\n[cine]\nsalas = ["normandie", "alameda", "ceina"]\n'
+    config = write_config(tmp_path, tmp_path / "newspaper.db", salas)
+
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Cine: Normandie, 06:02; Centro Arte Alameda · sala CEINA, sin leer;"
+        " CEINA · escenario, sin actualizar desde 06:02 (Server error '500"
+    ) in result.output
 
 
 def run_web(tmp_path, monkeypatch, uvicorn_run, *args, extra=""):
