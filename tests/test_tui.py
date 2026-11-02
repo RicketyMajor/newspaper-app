@@ -9,8 +9,8 @@ from newspaper.config.models import CineConfig
 from newspaper.edition.today import local_today
 from newspaper.storage.models import Article, Note, Screening
 from newspaper.tui.app import (
-    CineScreen,
     EditionScreen,
+    Entry,
     ListScreen,
     NewspaperApp,
     NoteScreen,
@@ -119,9 +119,12 @@ async def test_c_opens_the_cinema_and_o_opens_a_show(config, engine, monkeypatch
     app = NewspaperApp(with_cine)
     async with app.run_test() as pilot:
         await pilot.press("c")
-        assert isinstance(app.screen, CineScreen)
+        assert isinstance(app.screen, ListScreen) and app.screen.sub_title == "Cine"
         kinds = [kind for kind, _ in entries(app.screen)]
         assert ("link", url) in entries(app.screen)
+        # Never read yet: the same line as the web, under the cinema's name.
+        texts = [str(item.query_one(Label).content) for item in app.screen.query(Entry)]
+        assert "Todavía no la he leído" in texts
         app.screen.query_one(ListView).index = kinds.index("link")
         await pilot.press("o")
     assert opened == [url]

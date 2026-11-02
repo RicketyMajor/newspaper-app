@@ -26,11 +26,11 @@ from .config.loader import (
     find_config_path,
     load_config,
 )
-from .config.models import CINEMA_NAMES, FeedConfig, NewspaperConfig
+from .config.models import FeedConfig, NewspaperConfig
 from .edition.today import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
-from .storage.models import CinemaVenue, Edition, PushSubscription
+from .storage.models import Edition, PushSubscription
 
 # ponytail: redirected output on Windows may be cp1252; replace unencodable chars, don't crash.
 for _stream in (sys.stdout, sys.stderr):
@@ -335,19 +335,18 @@ def _subscriptions(s: Session) -> str:
 def _cinema(config: NewspaperConfig, s: Session) -> str:
     """Each cinema's last good read (#29), and the error since then, cut short."""
     zone = ZoneInfo(config.general.timezone)
-    venues = config.cine.salas
-    rows = {v.venue: v for v in s.scalars(select(CinemaVenue).where(CinemaVenue.venue.in_(venues)))}
     parts = []
-    for venue in venues:
-        row = rows.get(venue)
-        if row is None:
-            parts.append(f"{CINEMA_NAMES.get(venue, venue)}, sin leer")
+    for b in queries.cinema_board(s, config.cine.salas, local_today(config)):
+        if b.state == "unread":
+            parts.append(f"{b.name}, sin leer")
             continue
-        ok = f"{row.ok_at.replace(tzinfo=UTC).astimezone(zone):%H:%M}" if row.ok_at else "nunca"
-        if row.error:
-            parts.append(f"{row.name}, sin actualizar desde {ok} ({row.error[:80]})")
-        else:
-            parts.append(f"{row.name}, {ok}")
+        ok = b.status.ok_at and f"{b.status.ok_at.replace(tzinfo=UTC).astimezone(zone):%H:%M}"
+        if b.state == "ok":
+            parts.append(f"{b.name}, {ok}")
+        elif b.state == "stale":
+            parts.append(f"{b.name}, sin actualizar desde {ok} ({b.status.error[:80]})")
+        else:  # failed: never a good read
+            parts.append(f"{b.name}, sin leer ({b.status.error[:80]})")
     return "Cine: " + "; ".join(parts)
 
 

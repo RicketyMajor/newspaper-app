@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 from sqlalchemy import bindparam, func, or_, select, text
@@ -32,10 +32,27 @@ class SearchHit:
 
 @dataclass(frozen=True)
 class CinemaDay:
-    venue: str
     name: str
-    status: CinemaVenue | None  # None: never read yet
+    status: CinemaVenue | None  # its last read; None: never read yet
     shows: list[Screening]
+
+    @property
+    def state(self) -> Literal["unread", "failed", "stale", "ok"]:
+        """What the reader is told about the last read: never read, never read well, not
+        updated since status.ok_at, or fine. The web, the TUI, status and the copy's mark."""
+        if self.status is None:
+            return "unread"
+        if self.status.error:
+            return "stale" if self.status.ok_at else "failed"
+        return "ok"
+
+
+def cinema_days(
+    s: Session, venues: list[str], today: date
+) -> list[tuple[str, date, list[CinemaDay]]]:
+    """Today's and tomorrow's boards (#29), as the web, the TUI and the copy show them."""
+    days = (("Hoy", today), ("Mañana", today + timedelta(days=1)))
+    return [(label, d, cinema_board(s, venues, d)) for label, d in days]
 
 
 def cinema_board(s: Session, venues: list[str], day: date) -> list[CinemaDay]:
@@ -51,7 +68,6 @@ def cinema_board(s: Session, venues: list[str], day: date) -> list[CinemaDay]:
     }
     return [
         CinemaDay(
-            venue,
             status[venue].name if venue in status else CINEMA_NAMES.get(venue, venue),
             status.get(venue),
             [r for r in rows if r.venue == venue],

@@ -1,34 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Cine · {{ paper }}{% endblock %}
+{# The masthead without the latest edition's date: before 06:00 it is yesterday's, under «Hoy». #}
+{% block top %}
+<header class="top">
+  <a class="name" href="/">{{ paper }}</a>
+</header>
+{% endblock %}
 {% block content %}
-{# data-dia: back in the app on another day, app.js reloads the board so «Hoy» is today. #}
-<h1 class="page-title" data-dia="{{ board[0][1] }}">Cine</h1>
+{# data-hasta: tomorrow's midnight at the cinemas, as an instant. Back in the app after it,
+   app.js reloads the board so «Hoy» is today. #}
+<h1 class="page-title" data-hasta="{{ starts(board[1][1], '00:00') }}">Cine</h1>
+<p class="hint cine-hint">Cada título lleva a la compra de entradas o a la página del evento.</p>
 {% for label, day, venues in board %}
 <section class="cine-day" aria-labelledby="dia-{{ loop.index }}">
   <h2 id="dia-{{ loop.index }}">{{ label }} <span>{{ day|long_date|capitalize }}</span></h2>
   {% for v in venues %}
   <h3>{{ v.name }}</h3>
-  {% if v.status is none %}
+  {% if v.state == "unread" %}
   <p class="hint">Todavía no la he leído: se lee con la próxima descarga.</p>
-  {% elif v.status.error and v.status.ok_at %}
+  {% elif v.state == "stale" %}
   <p class="hint">No pude actualizar la cartelera desde {{ v.status.ok_at|since }}.</p>
-  {% elif v.status.error %}
+  {% elif v.state == "failed" %}
   <p class="hint">Todavía no he podido leer esta cartelera.</p>
   {% endif %}
-  <ul class="shows">
+  {% if v.shows %}
+  {# role="list": Safari drops it from a list without bullets. #}
+  <ul class="shows" role="list">
     {% for show in v.shows %}
-    {# data-start, with the cinema's offset: app.js dims what already started, also in the
+    {# data-start, with the cinema's offset: app.js marks what already started, also in the
        copy without the PC and on a device in another time zone. #}
     <li{% if show.time %} data-start="{{ starts(day, show.time) }}"{% endif %}>
-      <span class="t">{{ show.time or '—' }}</span>
+      {% if show.time %}<span class="t">{{ show.time }}</span>
+      {% else %}<span class="t"><span aria-hidden="true">—</span><span class="sr-only">Sin hora</span></span>{% endif %}
       {% if show.url %}<a href="{{ show.url }}">{{ show.title }}</a>{% else %}<span>{{ show.title }}</span>{% endif %}
-      {% set extra = [show.note] + ([] if show.time else ['horario en la página']) %}
-      {% if extra|select|list %}<span class="m">{{ extra|select|join(' · ') }}</span>{% endif %}
+      {% set when = none if show.time else ('hora en el enlace' if show.url else 'sin hora publicada') %}
+      {% set extra = [show.note, when]|select|list %}
+      {% if extra %}<span class="m">{{ extra|join(' · ') }}</span>{% endif %}
     </li>
-    {% else %}
-    <li class="hint">Sin funciones publicadas.</li>
     {% endfor %}
   </ul>
+  {% else %}
+  <p class="hint">Sin funciones publicadas.</p>
+  {% endif %}
   {% endfor %}
 </section>
 {% endfor %}

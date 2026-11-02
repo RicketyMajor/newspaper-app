@@ -5,7 +5,7 @@ import functools
 import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -190,12 +190,6 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 **context,
             },
         )
-
-    def cine_board(s: Session) -> list[tuple[str, date, list[queries.CinemaDay]]]:
-        """Today's and tomorrow's shows of each configured cinema (#29)."""
-        today = local_today(config)
-        days = (("Hoy", today), ("Mañana", today + timedelta(days=1)))
-        return [(label, d, queries.cinema_board(s, config.cine.salas, d)) for label, d in days]
 
     def opened(response: HTMLResponse, request: Request, *objs) -> HTMLResponse:
         """Record the first opening of editions and notes. Only real navigations count (not
@@ -446,7 +440,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def cinema(request: Request, s: DB):
         if not config.cine.salas:
             raise HTTPException(404, "No hay cartelera configurada")
-        return render(request, s, "cine.html", board=cine_board(s))
+        board = queries.cinema_days(s, config.cine.salas, local_today(config))
+        return render(request, s, "cine.html", board=board)
 
     @app.get("/estado")
     def status(s: DB):
@@ -487,38 +482,22 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         stamp = f"{edition.id}|{finished}"
         # The cinema page (#29): its mark follows what the page says (each cinema's name, the
         # line about its last read and its shows), not each 3-hour read that found the same.
-        cine_pages, cine_mark = [], ""
-        if config.cine.salas:
-
-            def read_line(b: queries.CinemaDay) -> str:
-                if b.status is None:
-                    return "unread"
-                if b.status.error:
-                    return f"failed since {since(b.status.ok_at)}" if b.status.ok_at else "failed"
-                return "ok"
-
-            shown = [
-                (d, b.name, read_line(b), [(x.time, x.title, x.note, x.url) for x in b.shows])
-                for _, d, venues in cine_board(s)
-                for b in venues
-            ]
-            cine_pages = ["/cine"]
-            cine_mark = "|c:" + hashlib.sha256(repr(shown).encode()).hexdigest()[:12]
+        salas = config.cine.salas
+        shown = [
+            (d, b.name, b.state, b.status.ok_at if b.state == "stale" else None,
+             [(x.time, x.title, x.note, x.url) for x in b.shows])
+            for _, d, boards in queries.cinema_days(s, salas, local_today(config))
+            for b in boards
+        ] if salas else []  # fmt: skip
+        cine = f"|c:{hashlib.sha256(repr(shown).encode()).hexdigest()[:12]}" if salas else ""
         return {
-            "revision": (
-                f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine_mark}"
-            ),
+            "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine}",
             "edition": stamp,
             "day": day,
             "pages": [f"/e/{day}"]
             + [f"/n/{n.id}" for n in core + rest]
-            + [
-                f"/fin/{day}",
-                "/guardado",
-                "/guardado?f=favoritos",
-                "/guardado?f=guardados",
-                *cine_pages,
-            ]
+            + [f"/fin/{day}", "/guardado", "/guardado?f=favoritos", "/guardado?f=guardados"]
+            + (["/cine"] if salas else [])
             + [f"/n/{n.id}" for n in older],
             "static": [
                 f"/static/style.css?v={v}",

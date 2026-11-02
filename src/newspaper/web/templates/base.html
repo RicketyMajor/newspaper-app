@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  {# Leaving for a box office or a news site tells it nothing (the *.ts.net name); same-origin,
+     not no-referrer: the toggles without JS go back through their Referer. #}
+  <meta name="referrer" content="same-origin">
   <title>{% block title %}{{ paper }}{% if paper_edition %} · {{ paper_edition.edition_date|long_date }}{% endif %}{% endblock %}</title>
   <link rel="preload" href="/static/fonts/newsreader-roman.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">

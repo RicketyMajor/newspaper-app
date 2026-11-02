@@ -348,11 +348,23 @@ def test_the_board_lists_each_venue_in_order_timed_shows_first(engine):
         )
     with Session(engine) as s:
         board = queries.cinema_board(s, ["normandie", "alameda", "ceina"], day)
-        assert [(b.venue, b.name) for b in board] == [
-            ("normandie", "Normandie"),
-            ("alameda", "Centro Arte Alameda · sala CEINA"),  # never read: the fixed name
-            ("ceina", "CEINA · escenario"),
+        assert [(b.name, b.state) for b in board] == [
+            ("Normandie", "ok"),
+            ("Centro Arte Alameda · sala CEINA", "unread"),  # never read: the fixed name
+            ("CEINA · escenario", "unread"),
         ]
         assert [x.title for x in board[0].shows] == ["Nine", "El odio"]
         assert (board[1].shows, board[1].status) == ([], None)
         assert [x.title for x in board[2].shows] == ["Vínculo(s)"]
+        days = queries.cinema_days(s, ["normandie"], day)
+        assert [(label, d) for label, d, _ in days] == [("Hoy", day), ("Mañana", date(2026, 11, 3))]
+
+
+def test_each_cinema_says_how_its_last_read_went():
+    def state(**status):
+        return queries.CinemaDay("x", CinemaVenue(**status) if status else None, []).state
+
+    assert state() == "unread"
+    assert state(error="sin red") == "failed"  # never a good read
+    assert state(error="sin red", ok_at=NOW) == "stale"
+    assert state(ok_at=NOW) == "ok"

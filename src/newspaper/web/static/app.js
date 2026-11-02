@@ -444,12 +444,12 @@ if (shows.length) {
   setInterval(dim, 60000);
 }
 
-// Left open overnight, the installed app resumes yesterday's board under «Hoy»: back in it on
-// another day, it reloads. "sv-SE" writes the date as YYYY-MM-DD. A copy never reloads itself.
-const boardDay = document.querySelector("[data-dia]")?.dataset.dia;
-if (boardDay && !copy) {
+// Left open overnight, the installed app resumes yesterday's board under «Hoy»: back in it after
+// the cinemas' midnight (data-hasta, an instant, so any device's zone works), it reloads. A copy
+// never reloads itself.
+const boardUntil = document.querySelector("[data-hasta]")?.dataset.hasta;
+if (boardUntil && !copy) {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
-    if (new Date().toLocaleDateString("sv-SE") !== boardDay) location.reload();
+    if (document.visibilityState === "visible" && Date.now() >= Date.parse(boardUntil)) location.reload();
   });
 }

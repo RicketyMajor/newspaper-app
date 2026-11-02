@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -67,7 +67,8 @@ def article_text(article: Article) -> Text:
 
 def show_text(show: Screening, past: bool) -> Text:
     """A showtime as a list row (#29): the hour, the title and its note; dim once started."""
-    note = " · ".join(x for x in (show.note, None if show.time else "horario en la página") if x)
+    when = None if show.time else ("hora en el enlace" if show.url else "sin hora publicada")
+    note = " · ".join(x for x in (show.note, when) if x)
     style = "dim" if past else ""
     parts = [(f"{show.time or '—':>5}  ", "dim" if past else "bold"), (show.title, style)]
     if note:
@@ -143,6 +144,10 @@ class ReaderScreen(Screen):
             entry.query_one(Label).update(note_text(item) if kind == "note" else article_text(item))
 
     def action_open_original(self) -> None:
+        entry = self.highlighted()
+        if entry and entry.kind == "link":  # a showtime (#29): its tickets or its page
+            self.open(entry.kind, entry.ref)
+            return
         target = self.target()
         if target is None:
             return
@@ -287,15 +292,6 @@ class ListScreen(ReaderScreen):
         yield VimList(*self.items)
 
 
-class CineScreen(ListScreen):
-    """Today's and tomorrow's showtimes (#29): Enter or o opens a show's tickets or page."""
-
-    def action_open_original(self) -> None:
-        entry = self.highlighted()
-        if entry and entry.kind == "link" and entry.ref:
-            webbrowser.open(entry.ref)
-
-
 class SearchScreen(ReaderScreen):
     def compose_body(self) -> ComposeResult:
         self.sub_title = "Buscar"
@@ -397,22 +393,34 @@ class NewspaperApp(App):
         self.push_screen(ListScreen("Favoritos" if flag == "favorite" else "Guardados", items))
 
     def action_cine(self) -> None:
-        now = datetime.now(ZoneInfo(self.config.general.timezone))
+        zone = ZoneInfo(self.config.general.timezone)
+        now = datetime.now(zone)
         today, hour = now.date(), f"{now:%H:%M}"
         items: list[Entry] = []
+
+        def say(text: str) -> None:
+            items.append(Entry("venue", None, Text(text, "dim")))
+
         with self.session() as s:
-            for label, day in (("Hoy", today), ("Mañana", today + timedelta(days=1))):
+            for label, day, boards in queries.cinema_days(s, self.config.cine.salas, today):
                 items.append(
                     Entry("day", None, Text(f"{label} · {long_date(day)}", "bold reverse"))
                 )
-                for board in queries.cinema_board(s, self.config.cine.salas, day):
+                for board in boards:  # the same lines as the web's
                     items.append(Entry("venue", None, Text(board.name.upper(), "bold")))
+                    if board.state == "unread":
+                        say("Todavía no la he leído")
+                    elif board.state == "failed":
+                        say("Todavía no he podido leer esta cartelera")
+                    elif board.state == "stale":
+                        ok = board.status.ok_at.replace(tzinfo=UTC).astimezone(zone)
+                        say(f"No pude actualizar la cartelera desde el {ok:%d/%m} a las {ok:%H:%M}")
                     for show in board.shows:
                         past = day == today and show.time is not None and show.time <= hour
                         items.append(Entry("link", show.url, show_text(show, past)))
                     if not board.shows:
-                        items.append(Entry("venue", None, Text("Sin funciones publicadas", "dim")))
-        self.push_screen(CineScreen("Cine", items))
+                        say("Sin funciones publicadas")
+        self.push_screen(ListScreen("Cine", items))
 
     def action_front(self) -> None:
         self.check_today()

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from newspaper import schedule
-from newspaper.config.models import CineConfig
+from newspaper.config.models import CINEMA_NAMES, CineConfig
 from newspaper.edition.today import local_today
 from newspaper.storage.models import (
     Article,
@@ -430,12 +430,14 @@ def cine_client(config):
 
 def read_venues(s, *venues, error=None, ok=True):
     now = utcnow()
-    names = {"normandie": "Normandie", "alameda": "Centro Arte Alameda · sala CEINA"}
-    names["ceina"] = "CEINA · escenario"
     for v in venues:
         s.add(
             CinemaVenue(
-                venue=v, name=names[v], checked_at=now, ok_at=now if ok else None, error=error
+                venue=v,
+                name=CINEMA_NAMES[v],
+                checked_at=now,
+                ok_at=now if ok else None,
+                error=error,
             )
         )
 
@@ -479,18 +481,24 @@ def test_cine_shows_today_and_tomorrow_by_venue(cine_client, engine, config):
         "Sin funciones publicadas",
         "CEINA · escenario",
         "VÍNCULO(S)",
-        "horario en la página",
+        "Danza · sin hora publicada",  # no time and no link: nowhere to look it up
         ">Mañana <span",
         "Hangar Rojo",
     ]
     at = [html.index(x) for x in order]
     assert at == sorted(at)
-    # An instant with the cinema's offset: a device in another zone dims it at the right time.
-    start = datetime.combine(today, time(15), ZoneInfo(config.general.timezone)).isoformat()
+    # Instants with the cinema's offset: a device in another zone dims and reloads on time.
+    zone = ZoneInfo(config.general.timezone)
+    start = datetime.combine(today, time(15), zone).isoformat()
     assert f'data-start="{start}"' in html
-    assert f'data-dia="{today}"' in html  # app.js reloads a board left open overnight
+    midnight = datetime.combine(today + timedelta(days=1), time(0), zone).isoformat()
+    assert f'data-hasta="{midnight}"' in html  # app.js reloads a board left open overnight
     assert 'href="https://www.flow.cl/btn.php?token=x"' in html
     assert 'href="/cine" aria-current="page"' in html
+    assert '<ul class="shows" role="list">' in html  # Safari drops a styled list's role
+    assert "Sin hora" in html  # read out instead of «—»
+    assert 'class="date"' not in html  # the latest edition's date would contradict «Hoy»
+    assert '<meta name="referrer" content="same-origin">' in html  # no *.ts.net to box offices
 
 
 def test_cine_says_when_a_venue_could_not_be_read(cine_client, engine):
