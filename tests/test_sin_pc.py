@@ -83,6 +83,19 @@ def test_the_copy_carries_the_cinema_and_follows_its_shows(config, engine, seede
     assert client.get("/sin-pc").json()["revision"] != first["revision"]
 
 
+def test_the_copy_follows_each_cinemas_state_even_without_shows(config, engine, seeded):
+    with_cine = config.model_copy(update={"cine": CineConfig(salas=["normandie"])})
+    client = TestClient(create_app(with_cine), base_url="http://127.0.0.1:8765")
+    unread = client.get("/sin-pc").json()["revision"]  # the page says «Todavía no la he leído»
+    with Session(engine) as s, s.begin():  # the first read: nothing today or tomorrow
+        s.add(CinemaVenue(venue="normandie", name="Normandie", checked_at=utcnow(), ok_at=utcnow()))
+    read = client.get("/sin-pc").json()["revision"]
+    assert read != unread
+    with Session(engine) as s, s.begin():  # a later read fails: the page says since when
+        s.get(CinemaVenue, "normandie").error = "sin red"
+    assert client.get("/sin-pc").json()["revision"] != read
+
+
 def test_without_cinema_the_copy_has_no_cine_page(client, seeded):
     assert "/cine" not in client.get("/sin-pc").json()["pages"]
 

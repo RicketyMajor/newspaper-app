@@ -148,7 +148,13 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             return f"las {local:%H:%M}"
         return f"el {local.day}/{local.month} a las {local:%H:%M}"
 
+    def starts(day: date, hhmm: str) -> str:
+        """A show's start as an instant with the cinema's offset (#29): app.js compares it with
+        the device's clock, wherever the device is."""
+        return datetime.combine(day, time.fromisoformat(hhmm), zone).isoformat()
+
     templates.env.filters["since"] = since
+    templates.env.globals["starts"] = starts
     templates.env.globals["cine"] = bool(config.cine.salas)  # the tab (#29)
 
     def db():
@@ -479,15 +485,23 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
         finished = edition.finished_at.isoformat() if edition.finished_at else ""
         stamp = f"{edition.id}|{finished}"
-        # The cinema page (#29): its mark changes with the shows and errors it shows, not with
-        # each 3-hour read that found the same.
+        # The cinema page (#29): its mark follows what the page says (each cinema's name, the
+        # line about its last read and its shows), not each 3-hour read that found the same.
         cine_pages, cine_mark = [], ""
         if config.cine.salas:
+
+            def read_line(b: queries.CinemaDay) -> str:
+                if b.status is None:
+                    return "unread"
+                if b.status.error:
+                    return f"failed since {since(b.status.ok_at)}" if b.status.ok_at else "failed"
+                return "ok"
+
             shown = [
-                (d, b.venue, b.status.error if b.status else None,
-                 [(x.time, x.title, x.note, x.url) for x in b.shows])
-                for _, d, venues in cine_board(s) for b in venues
-            ]  # fmt: skip
+                (d, b.name, read_line(b), [(x.time, x.title, x.note, x.url) for x in b.shows])
+                for _, d, venues in cine_board(s)
+                for b in venues
+            ]
             cine_pages = ["/cine"]
             cine_mark = "|c:" + hashlib.sha256(repr(shown).encode()).hexdigest()[:12]
         return {

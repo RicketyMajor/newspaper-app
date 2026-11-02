@@ -1,6 +1,7 @@
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -484,7 +485,9 @@ def test_cine_shows_today_and_tomorrow_by_venue(cine_client, engine, config):
     ]
     at = [html.index(x) for x in order]
     assert at == sorted(at)
-    assert f'data-start="{today}T15:00"' in html
+    # An instant with the cinema's offset: a device in another zone dims it at the right time.
+    start = datetime.combine(today, time(15), ZoneInfo(config.general.timezone)).isoformat()
+    assert f'data-start="{start}"' in html
     assert 'href="https://www.flow.cl/btn.php?token=x"' in html
     assert 'href="/cine" aria-current="page"' in html
 

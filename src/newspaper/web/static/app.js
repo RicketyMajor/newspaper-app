@@ -433,7 +433,7 @@ if (copy) {
 }
 
 // The cinema page (#29): the shows that already started, dimmed. The time travels in the page,
-// so the copy without the PC dims too; "2026-11-02T15:00" parses as local time.
+// so the copy without the PC dims too; it carries the cinema's offset ("…T15:00:00-03:00").
 const shows = document.querySelectorAll("li[data-start]");
 if (shows.length) {
   const dim = () => {

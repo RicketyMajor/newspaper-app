@@ -16,8 +16,9 @@
   {% endif %}
   <ul class="shows">
     {% for show in v.shows %}
-    {# data-start: app.js dims what already started, also in the copy without the PC. #}
-    <li{% if show.time %} data-start="{{ day }}T{{ show.time }}"{% endif %}>
+    {# data-start, with the cinema's offset: app.js dims what already started, also in the
+       copy without the PC and on a device in another time zone. #}
+    <li{% if show.time %} data-start="{{ starts(day, show.time) }}"{% endif %}>
       <span class="t">{{ show.time or '—' }}</span>
       {% if show.url %}<a href="{{ show.url }}">{{ show.title }}</a>{% else %}<span>{{ show.title }}</span>{% endif %}
       {% set extra = [show.note] + ([] if show.time else ['horario en la página']) %}
