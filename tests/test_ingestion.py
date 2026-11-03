@@ -6,7 +6,7 @@ import pytest
 
 from newspaper.config.models import FeedConfig
 from newspaper.ingestion.extract import extract_many, extract_text
-from newspaper.ingestion.rss import fetch_feed, parse_feed
+from newspaper.ingestion.rss import clean_html, fetch_feed, parse_feed
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CIPER = FeedConfig(name="CIPER", url="https://ciper.test/feed", section="Chile")
@@ -18,6 +18,14 @@ def client_for(routes: dict[str, httpx.Response]) -> httpx.Client:
         return routes.get(str(request.url), httpx.Response(404))
 
     return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_clean_html_drops_control_characters():
+    # An ESC in a feed's title reached the terminal reader and `status` (OSC 52 to the
+    # clipboard, clearing the screen): the review of #29 found it in the cinema data too.
+    # Raw ones: html.unescape already drops «&#27;» (HTML5 rules) but leaves a raw ESC or CSI.
+    assert clean_html("Nine\x1b[2J <b>de hoy</b>\x07\x9bfin") == "Nine [2J de hoy fin"
+    assert clean_html("Línea 1<br>línea 2\t«ñandú»") == "Línea 1 línea 2 «ñandú»"
 
 
 def test_parse_rss2_cleans_html_converts_dates_and_skips_untitled():

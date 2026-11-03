@@ -33,8 +33,13 @@ def make_client(timeout: float = 20) -> httpx.Client:
     return httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": USER_AGENT})
 
 
+# Control characters: an ESC in a title would reach the terminal (the TUI, `status`).
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
 def clean_html(value: str) -> str:
-    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", value)).split())
+    """An HTML fragment as one line of plain text, without control characters."""
+    return " ".join(CONTROL.sub(" ", html.unescape(re.sub(r"<[^>]+>", " ", value))).split())
 
 
 def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:

@@ -19,7 +19,7 @@ from ..config.models import CINEMA_NAMES, NewspaperConfig
 from ..dates import DAYS, MONTHS
 from ..edition.today import local_today
 from ..storage.models import CinemaVenue, Screening, utcnow
-from .rss import clean_html
+from .rss import CONTROL, clean_html
 
 NORMANDIE_URL = "https://normandie.cl/wp-json/wp/v2/pages?slug=cartelera&_fields=content"
 CEINA_URL = "https://ceina.cl/cartelera/"
@@ -50,7 +50,6 @@ def plain(text: str) -> str:
 
 WEEKDAY = {plain(d): i for i, d in enumerate(DAYS)}
 MONTH = {plain(m): i + 1 for i, m in enumerate(MONTHS)} | {"setiembre": 9}
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def web_url(url: str | None) -> str | None:
