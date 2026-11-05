@@ -15,6 +15,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from newspaper import notify
+from newspaper.config.models import NtfyConfig
 from newspaper.edition.today import notice_at
 from newspaper.storage.models import Edition, EditionStatus, Note, PushSubscription, utcnow
 
@@ -310,6 +311,33 @@ def test_the_payload_stays_in_one_record_even_in_4_byte_characters():
     assert len(notify.encrypt(payload, keys["p256dh"], keys["auth"])) <= 4096  # one record
 
 
+NTFY = NtfyConfig(url="https://ntfy.sh/alba-secreto", click="https://pc.ts.net/")
+
+
+def test_ntfy_posts_the_notice_with_its_title_priority_and_click():
+    seen = []
+    message = notify.Message("edicion", "Alba — 2 esenciales", "Senado «aprueba»", DAY)
+    sent = notify.send_ntfy(NTFY, message, lambda _: None, http=service(200, seen=seen))
+    assert (sent.accepted, sent.total) == (1, 1)
+    (request,) = seen
+    assert request.method == "POST" and request.url.path == "/alba-secreto"
+    assert dict(request.url.params) == {
+        "title": "Alba — 2 esenciales",
+        "priority": "high",
+        "tags": "newspaper",
+        "click": "https://pc.ts.net/",
+    }
+    assert request.content.decode() == "Senado «aprueba»"
+
+
+@pytest.mark.parametrize("answer", [500, httpx.ConnectError("sin red"), httpx.ReadTimeout("x")])
+def test_a_failed_ntfy_post_is_not_accepted_and_says_why(answer):
+    logs = []
+    sent = notify.send_ntfy(NTFY, EDITION, logs.append, http=service(answer))
+    assert (sent.accepted, sent.uncertain, sent.total) == (0, 0, 1)
+    assert logs and logs[0].startswith("Aviso no enviado por ntfy:")
+
+
 DAY = date(2026, 10, 10)  # the seeded edition
 
 
@@ -598,6 +626,41 @@ def test_the_notice_task_sends_once_and_stops(config, engine, seeded, push):
     naps = []
     notify.pending_notice(config, DAY, lambda _: None, sleep=naps.append)
     assert len(push.messages) == 1 and naps == []
+
+
+@pytest.fixture
+def by_ntfy(config, monkeypatch):
+    """[ntfy] set, no key and no subscription; `send_ntfy` and `send` recorded."""
+    config.ntfy = NTFY
+    calls = SimpleNamespace(messages=[], result=notify.Sent(accepted=1, total=1), push=[])
+
+    def fake_ntfy(ntfy, message, log, http=None):
+        calls.messages.append(message)
+        return calls.result
+
+    monkeypatch.setattr(notify, "send_ntfy", fake_ntfy)
+    monkeypatch.setattr(notify, "send", lambda *a, **k: calls.push.append(a))
+    return calls
+
+
+def test_with_ntfy_the_notice_needs_no_subscription_nor_key(config, engine, seeded, by_ntfy):
+    assert notify.notice_pending(config, DAY)
+    assert notify.edition_notice(config, DAY, lambda _: None, guard=False)
+    assert len(by_ntfy.messages) == 1 and by_ntfy.push == []
+    assert by_ntfy.messages[0].kind == "edicion" and marks(engine)[0] is not None
+
+
+def test_a_failed_ntfy_notice_releases_the_claim_and_stays_pending(config, engine, seeded, by_ntfy):
+    by_ntfy.result = notify.Sent(total=1)
+    assert not notify.edition_notice(config, DAY, lambda _: None, guard=False)
+    assert marks(engine)[0] is None and notify.notice_pending(config, DAY)
+
+
+def test_resend_goes_by_ntfy(config, engine, seeded, by_ntfy):
+    assert notify.resend(config, DAY, lambda _: None) == "Aviso enviado por ntfy."
+    by_ntfy.result = notify.Sent(total=1)
+    assert notify.resend(config, DAY, lambda _: None) == "Aviso no enviado por ntfy."
+    assert len(by_ntfy.messages) == 2 and by_ntfy.push == []
 
 
 def test_the_notice_task_tries_again_while_nothing_went_out(config, engine, seeded, push):

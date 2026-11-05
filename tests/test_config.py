@@ -137,3 +137,18 @@ def test_cine_takes_slugs_once(tmp_path):
     for bad in (["Normandie"], ["sala k"], ["normandie", "normandie"]):
         with pytest.raises(ValidationError):
             NewspaperConfig(**base, cine=CineConfig(salas=bad))
+
+
+def test_ntfy_needs_an_https_topic_and_click(tmp_path):
+    base = {"storage": {"database_path": tmp_path / "n.db"}}
+    ok = NewspaperConfig(
+        **base, ntfy={"url": "https://ntfy.sh/alba-x", "click": "https://pc.ts.net/"}
+    )
+    assert ok.ntfy.url == "https://ntfy.sh/alba-x"
+    assert NewspaperConfig(**base).ntfy is None
+    for bad in (
+        {"url": "https://ntfy.sh/alba-x"},
+        {"url": "http://ntfy.sh/a", "click": "https://pc/"},
+    ):
+        with pytest.raises(ValidationError):
+            NewspaperConfig(**base, ntfy=bad)

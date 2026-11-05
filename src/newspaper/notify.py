@@ -30,7 +30,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from .config.models import NewspaperConfig
+from .config.models import NewspaperConfig, NtfyConfig
 from .dates import long_date
 from .edition.today import notice_at
 from .storage import queries
@@ -230,6 +230,29 @@ def send(
     return sent
 
 
+def send_ntfy(
+    ntfy: NtfyConfig,
+    message: Message,
+    log: Callable[[str], None],
+    http: httpx.Client | None = None,
+) -> Sent:
+    """The day's notice as one POST to an ntfy topic (#28). The ntfy app shows it from its own
+    push handler, which survives where a cold Chrome is killed first. Title and options go in
+    the query: headers can't carry UTF-8."""
+    params = {"title": message.title, "priority": "high", "tags": "newspaper", "click": ntfy.click}
+    client = nullcontext(http) if http else httpx.Client(timeout=10, follow_redirects=False)
+    try:
+        with client as client:
+            response = client.post(ntfy.url, params=params, content=message.body.encode())
+    except httpx.HTTPError as e:  # a repeat is harmless here: no "uncertain"
+        log(f"Aviso no enviado por ntfy: {_why(e)}")
+        return Sent(total=1)
+    if not response.is_success:
+        log(f"Aviso no enviado por ntfy: HTTP {response.status_code}")
+        return Sent(total=1)
+    return Sent(accepted=1, total=1)
+
+
 def _essentials(core: list) -> str:
     n = len(core)
     return f"{n} {'esencial' if n == 1 else 'esenciales'}, {sum(x.read_minutes for x in core)} min"
@@ -261,6 +284,11 @@ def _live(s: Session) -> int:
     return s.scalar(live.where(PushSubscription.gone_at.is_(None)))
 
 
+def _reachable(config: NewspaperConfig, s: Session) -> bool:
+    """Someone to tell: the ntfy topic, or a live Web Push subscription."""
+    return config.ntfy is not None or bool(_live(s))
+
+
 def _set(engine: Engine, edition_id: int, where: tuple = (), **values) -> int:
     with engine.begin() as conn:
         stmt = update(Edition).where(Edition.id == edition_id, *where).values(**values)
@@ -285,7 +313,7 @@ def edition_notice(
     engine = open_db(config)
     with Session(engine) as s:
         edition = queries.today_edition(s, day)
-        if edition is None or edition.notified_at or edition.opened_at or not _live(s):
+        if edition is None or edition.notified_at or edition.opened_at or not _reachable(config, s):
             return False
         message = edition_message(s, config, edition)
         if message is None:
@@ -293,10 +321,12 @@ def edition_notice(
                 log("Aviso: la edición no tiene notas esenciales; no se avisa.")
             return False
         edition_id, seen = edition.id, edition.status
-    vapid = load_key(key_path(config))
-    if vapid is None:
-        log(f"Aviso: falta {KEY_FILE}; abre la web una vez para crearla.")
-        return False
+    vapid = None
+    if config.ntfy is None:
+        vapid = load_key(key_path(config))
+        if vapid is None:
+            log(f"Aviso: falta {KEY_FILE}; abre la web una vez para crearla.")
+            return False
     claimed = utcnow()
     # Claim before the first POST: of two processes arriving together only one sends; an
     # opening or a new state meanwhile wins; and the funnel is emptied before a fast ping from
@@ -311,7 +341,9 @@ def edition_notice(
     if _set(engine, edition_id, unchanged, **claim) != 1:
         return False
     message.n = number(claimed)
-    sent = send(engine, vapid, message, log)
+    sent = (
+        send_ntfy(config.ntfy, message, log) if config.ntfy else send(engine, vapid, message, log)
+    )
     # ponytail: one acceptance keeps the claim, so a phone that failed while the PC was accepted
     # waits for `newspaper notify`; retrying per subscription needs a table of its own.
     if not sent.accepted and not sent.uncertain:  # nothing went out: the next fetch tries again
@@ -331,11 +363,11 @@ IN_FLIGHT = timedelta(minutes=1)
 def notice_pending(config: NewspaperConfig, day: date) -> bool:
     """Today's edition still owes its automatic notice: being written, or ready (or failed)
     with something to say, not yet notified nor opened, with someone to tell and a key."""
-    if not key_path(config).exists():  # edition_notice already said why
+    if config.ntfy is None and not key_path(config).exists():  # edition_notice already said why
         return False
     with Session(open_db(config)) as s:
         edition = queries.today_edition(s, day)
-        if edition is None or edition.opened_at or not _live(s):
+        if edition is None or edition.opened_at or not _reachable(config, s):
             return False
         if edition.notified_at:
             return utcnow() - edition.notified_at < IN_FLIGHT
@@ -377,7 +409,7 @@ def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> st
         edition = queries.today_edition(s, day)
         if edition is None:
             return "Todavía no hay edición de hoy."
-        if not _live(s):
+        if not _reachable(config, s):
             return "No hay suscripciones: actívalas al pie de Hoy."
         message = edition_message(s, config, edition)
         if message is None:
@@ -389,16 +421,22 @@ def resend(config: NewspaperConfig, day: date, log: Callable[[str], None]) -> st
             "clicked_at": edition.clicked_at,
             "cached_at": edition.cached_at,
         }
-    vapid = load_key(key_path(config))
-    if vapid is None:
-        return f"Falta {KEY_FILE}: abre la web una vez para crearla."
+    vapid = None
+    if config.ntfy is None:
+        vapid = load_key(key_path(config))
+        if vapid is None:
+            return f"Falta {KEY_FILE}: abre la web una vez para crearla."
     now = utcnow()
     _set(engine, edition_id, notified_at=now, delivered_at=None, clicked_at=None, cached_at=None)
     message.n = number(now)
-    sent = send(engine, vapid, message, log)
+    sent = (
+        send_ntfy(config.ntfy, message, log) if config.ntfy else send(engine, vapid, message, log)
+    )
     if not sent.accepted and not sent.uncertain:
         # Only if still ours: another notify may have succeeded meanwhile.
         _set(engine, edition_id, (Edition.notified_at == now,), **before)
+    if config.ntfy:
+        return "Aviso enviado por ntfy." if sent.accepted else "Aviso no enviado por ntfy."
     text = f"Aviso enviado a {sent.accepted} de {sent.total} suscripciones."
     return text + (f" {sent.uncertain} sin respuesta." if sent.uncertain else "")
 

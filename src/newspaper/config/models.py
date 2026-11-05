@@ -106,12 +106,21 @@ class CineConfig(BaseModel):
         return self
 
 
+class NtfyConfig(BaseModel):
+    """The daily notice through ntfy (#28): Chrome dies before showing a Web Push on a phone
+    short of memory; the ntfy app shows it natively. The topic name is the password."""
+
+    url: str = Field(pattern=r"^https://\S+$")  # the whole topic URL
+    click: str = Field(pattern=r"^https://\S+$")  # what tapping the notice opens
+
+
 class NewspaperConfig(BaseModel):
     general: GeneralConfig = Field(default_factory=GeneralConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     edition: EditionConfig = Field(default_factory=EditionConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     interests: InterestsConfig = Field(default_factory=InterestsConfig)
+    ntfy: NtfyConfig | None = None
     cine: CineConfig = Field(default_factory=CineConfig)
     feeds: list[FeedConfig] = Field(default_factory=list)
     path: Path | None = Field(default=None, exclude=True)  # file it was loaded from
