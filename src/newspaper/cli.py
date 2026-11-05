@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import shutil
 import sys
 import tomllib
 from datetime import UTC, date, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -63,8 +65,24 @@ def _load(ctx: click.Context) -> NewspaperConfig:
         raise click.ClickException(f"Configuración inválida: {e}") from e
 
 
+LOG_MAX_BYTES = 1_000_000  # generate.log and web.log; three old ones are kept beside each
+
+
 def _log_path(config: NewspaperConfig, name: str = "generate.log") -> Path:
     return Path(config.storage.database_path).expanduser().parent / name
+
+
+def _rotate(path: Path, keep: int = 3) -> None:
+    """Past LOG_MAX_BYTES the log becomes .1, .1 becomes .2 … and the oldest is dropped."""
+    try:
+        if path.stat().st_size <= LOG_MAX_BYTES:
+            return
+        for n in range(keep - 1, -1, -1):
+            older = path.with_name(f"{path.name}.{n}") if n else path
+            if older.exists():
+                os.replace(older, path.with_name(f"{path.name}.{n + 1}"))
+    except OSError:  # no log yet, or another process has it open: the next line tries again
+        pass
 
 
 def _log(config: NewspaperConfig, message: str, style: str = "dim") -> None:
@@ -74,7 +92,7 @@ def _log(config: NewspaperConfig, message: str, style: str = "dim") -> None:
     path = _log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     # The scheduled tasks run under pythonw (no console): the log is the only trace they leave.
-    # ponytail: append-only, ~3 KB per edition; rotate it if it ever gets in the way.
+    _rotate(path)
     with path.open("a", encoding="utf-8") as f:  # one entry per line (httpx errors span two)
         f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {' '.join(message.splitlines())}\n")
 
@@ -181,11 +199,11 @@ def web(ctx: click.Context, port: int, no_browser: bool) -> None:
     log = _log_path(config, "web.log")
     log.parent.mkdir(parents=True, exist_ok=True)
     # The scheduled task runs under pythonw, with no console: startup errors, bind errors and
-    # 500s (with their tracebacks) land here. ponytail: append-only and errors only; rotate it
-    # if it grows.
+    # 500s (with their tracebacks) land here.
     logging.basicConfig(
-        filename=log,
-        encoding="utf-8",
+        handlers=[
+            RotatingFileHandler(log, maxBytes=LOG_MAX_BYTES, backupCount=3, encoding="utf-8")
+        ],
         level=logging.WARNING,
         format="%(asctime)s %(name)s: %(message)s",
         force=True,

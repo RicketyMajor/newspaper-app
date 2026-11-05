@@ -373,6 +373,12 @@ def keep_awake(
             log.warning("keep_awake: no sé cuándo despertó el PC", exc_info=True)
             return None
 
+    def set_state(flags: int) -> None:
+        try:
+            kernel32.SetThreadExecutionState(flags)
+        except Exception:  # a dead thread never sets `held`: keep_awake would wait forever
+            log.warning("keep_awake: Windows no tomó el pedido %#x", flags, exc_info=True)
+
     def hold() -> None:  # the request belongs to this thread
         held_in = None  # the wake in which the web surely needed the PC: only its end may sleep it
         free_in = None  # the wake in which it last didn't
@@ -412,10 +418,10 @@ def keep_awake(
                             log.warning("keep_awake: no pude dormir el PC", exc_info=True)
                         awake, _ = ask()  # never let go on a stale "no": a visit may have come
                     free_in = wake
-            kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if awake else 0))
+            set_state(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if awake else 0))
             held.set()
             recheck.wait(RENEW_SECONDS)
-        kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+        set_state(ES_CONTINUOUS)
 
     thread = threading.Thread(target=hold, name="keep-awake", daemon=True)
     thread.start()

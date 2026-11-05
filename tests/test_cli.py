@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 from sqlalchemy.orm import Session
 
-from newspaper import schedule
+from newspaper import cli, schedule
 from newspaper.cli import main
 from newspaper.edition.generate import GenerateResult
 from newspaper.storage.models import CinemaVenue, Note, PushSubscription
@@ -82,6 +82,23 @@ def test_generate_appends_its_progress_to_a_log_next_to_the_database(tmp_path, m
     assert "Preparando la edición del" in lines[0]
     assert lines[2].endswith("(Video [/VIDEO]): Ollama 500: token repeat limit reached")
     assert lines[3].endswith("Edición publicada con 1 notas.")
+
+
+def test_the_log_rotates_past_its_limit_and_keeps_three_old_ones(tmp_path):
+    config = SimpleNamespace(storage=SimpleNamespace(database_path=str(tmp_path / "n.db")))
+    log = tmp_path / "generate.log"
+    for n in (1, 2, 3):
+        log.with_name(f"generate.log.{n}").write_text(f"old {n}\n", encoding="utf-8")
+    log.write_text("x" * (cli.LOG_MAX_BYTES + 1), encoding="utf-8")
+
+    cli._log(config, "Leyendo fuentes…")
+
+    [line] = log.read_text(encoding="utf-8").splitlines()
+    assert line.endswith("  Leyendo fuentes…")
+    assert log.with_name("generate.log.1").stat().st_size == cli.LOG_MAX_BYTES + 1
+    old = [log.with_name(f"generate.log.{n}").read_text(encoding="utf-8") for n in (2, 3)]
+    assert old == ["old 1\n", "old 2\n"]  # the third is dropped
+    assert not log.with_name("generate.log.4").exists()
 
 
 def test_generate_keeps_the_pc_awake_while_it_runs(tmp_path, monkeypatch):

@@ -154,6 +154,28 @@ def test_keep_awake_holds_when_it_cannot_tell(monkeypatch):
     assert states[-1] == schedule.ES_CONTINUOUS
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="SetThreadExecutionState is Windows-only")
+def test_keep_awake_survives_a_failing_request(monkeypatch, caplog):
+    # The holding thread died on it and keep_awake waited for it forever: the edition hung.
+    import ctypes
+    import threading
+
+    def refuse(state):
+        raise OSError("access denied")
+
+    monkeypatch.setattr(ctypes.windll, "kernel32", SimpleNamespace(SetThreadExecutionState=refuse))
+    finished = threading.Event()
+
+    def edition():  # in a thread: a regression hangs, and must fail instead
+        with schedule.keep_awake():
+            pass
+        finished.set()
+
+    threading.Thread(target=edition, daemon=True).start()
+    assert finished.wait(2)
+    assert any(r.levelno == logging.WARNING for r in caplog.records), caplog.text
+
+
 def test_keep_awake_does_nothing_off_windows(monkeypatch):
     monkeypatch.setattr(schedule.sys, "platform", "linux")
     with schedule.keep_awake():
