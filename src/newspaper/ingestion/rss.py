@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import calendar
 import html
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -29,8 +31,41 @@ class RawArticle:
     published_at: datetime | None  # naive UTC
 
 
-def make_client(timeout: float = 20) -> httpx.Client:
-    return httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": USER_AGENT})
+class BlockedURL(httpx.RequestError):
+    """A request to a scheme other than http(s), or to a host that isn't on the internet."""
+
+
+def _resolve(host: str) -> list[str]:
+    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+
+
+def _public_only(request: httpx.Request) -> None:
+    """Refuse a host with any non-global address: a feed, an article link or a redirect must
+    not reach this PC's own services (the web reader, Ollama) or the LAN. httpx calls it before
+    every request, each redirect included.
+    ponytail: httpx resolves the name again to connect; DNS rebinding in between gets through."""
+    if request.url.scheme not in ("http", "https"):
+        raise BlockedURL(f"esquema no permitido: {request.url.scheme}", request=request)
+    host = request.url.raw_host.decode("ascii")  # IDNA, no brackets: the name httpx connects to
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(a) for a in _resolve(host)]
+        except OSError:  # it could answer 127.0.0.1 when httpx resolves it again to connect
+            raise BlockedURL(f"{host} no se pudo resolver", request=request) from None
+    if not addresses or not all(a.is_global for a in addresses):
+        raise BlockedURL(f"{host} no es una dirección pública", request=request)
+
+
+def make_client(timeout: float = 20, transport: httpx.BaseTransport | None = None) -> httpx.Client:
+    return httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        headers={"User-Agent": USER_AGENT},
+        event_hooks={"request": [_public_only]},
+        transport=transport,  # tests only
+    )
 
 
 # Control characters: an ESC in a title would reach the terminal (the TUI, `status`).

@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from newspaper.config.models import FeedConfig
+from newspaper.ingestion import rss
 from newspaper.ingestion.extract import extract_many, extract_text
 from newspaper.ingestion.rss import clean_html, fetch_feed, parse_feed
 
@@ -114,3 +115,39 @@ def test_parse_keeps_only_web_links():
     urls = [a.url for a in parse_feed(feed.encode(), CIPER)]
     assert urls[0] == "https://ok.test/a"
     assert all(u.startswith(("http://", "https://")) for u in urls)
+
+
+def test_client_refuses_private_hosts_and_redirects_to_them(monkeypatch):
+    # A feed or an article link must not reach this PC's own services (the web reader,
+    # Ollama) or the LAN, not even through a redirect from a public page.
+    hosts = {"feed.example": ["93.184.216.34"], "evil.example": ["127.0.0.1"]}
+    monkeypatch.setattr(rss, "_resolve", lambda host: hosts[host])
+
+    def handler(request):
+        if request.url.host == "feed.example":
+            return httpx.Response(302, headers={"Location": "http://evil.example/x"})
+        return httpx.Response(200, text="secret")
+
+    client = rss.make_client(transport=httpx.MockTransport(handler))
+    with pytest.raises(rss.BlockedURL):
+        client.get("http://feed.example/rss")
+    with pytest.raises(rss.BlockedURL):
+        client.get("http://127.0.0.1:8765/")
+    with pytest.raises(rss.BlockedURL):
+        client.get("http://[::1]/")
+    with pytest.raises(rss.BlockedURL):
+        client.get("ftp://feed.example/rss")
+
+    hosts["evil.example"] = ["93.184.216.34", "2606:4700::1"]  # now public: it goes through
+    assert client.get("http://feed.example/rss").text == "secret"
+
+
+def test_client_refuses_a_host_that_does_not_resolve(monkeypatch):
+    # A name that fails at the check could answer 127.0.0.1 when httpx resolves it to connect.
+    def no_such_host(host):
+        raise OSError("getaddrinfo failed")
+
+    monkeypatch.setattr(rss, "_resolve", no_such_host)
+    client = rss.make_client(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    with pytest.raises(rss.BlockedURL):
+        client.get("https://nowhere.example/")
