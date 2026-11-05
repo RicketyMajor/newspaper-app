@@ -36,7 +36,7 @@ A personal daily newspaper. You list your RSS sources by section; every morning 
 
 News sites and feed readers hand you the same event five times, from five outlets, in five tabs. Newspaper reads them all and writes **one note per event**, with a short "where they differ" when outlets disagree, so the edition can be finished: about ten essential notes and twenty-five minutes, then the rest if you want it.
 
-Everything runs on your own computer. The language models run in [Ollama](https://ollama.com); there are no accounts, no cloud services, and no tracking. The only outbound requests are your feeds, the original articles, and (if you turn on the daily notice) the browser's own push service, end-to-end encrypted.
+Everything runs on your own computer. The language models run in [Ollama](https://ollama.com); there are no accounts, no cloud services, and no tracking. The only outbound requests are your feeds, the original articles, and (if you turn on the daily notice) the browser's own push service, end-to-end encrypted, or your ntfy topic, which sees the notice's text.
 
 ## Features
 
@@ -44,7 +44,7 @@ Everything runs on your own computer. The language models run in [Ollama](https:
 - **A finishable edition**: a core of about ten notes (the front page plus the first of each section); a sun climbs as you read, up to "Pleno día" (full day).
 - **Three readers, one state**: a terminal reader (Textual), a local web reader, and the same web as an installable app on your phone through [Tailscale](https://tailscale.com). Read, favorite and saved marks are shared.
 - **A hands-free morning** (Windows): the PC wakes up, writes the edition, sends the daily notice, and goes back to sleep when nobody is using it.
-- **Reading without the PC**: when the notice arrives, the phone app keeps a read-only copy of the edition, so you can read while the PC sleeps.
+- **Reading without the PC**: when a Web Push notice arrives, or whenever you open it with the PC awake, the phone app keeps a read-only copy of the edition, so you can read while the PC sleeps.
 - **Your interests**: optional "like" and "dislike" phrases; the local model tags each event with one of them, and the edition is ordered accordingly.
 - **Per-feed rules**: drop or reroute articles by URL or title (`exclude`, `route`).
 - **Today's showtimes** (optional): today's and tomorrow's screenings of your cinemas in a "Cine" tab (and `c` in the terminal reader), read from their pages at most every 3 hours: Cine Arte Normandie, the CEINA's stage, or any cinema listed on [encartelera.cl](https://www.encartelera.cl).
@@ -188,8 +188,10 @@ The web reader only listens on `127.0.0.1`. [Tailscale](https://tailscale.com) p
 At the foot of Today, **Avisarme cuando salga …** subscribes that browser (the installed app counts as its own) to a Web Push notice. The notice is end-to-end encrypted and goes through the browser's push service (Google's, for Chrome): the PC's first outbound request that isn't a feed. Its signing key, `vapid.pem`, sits next to the database. A new key (after deleting it and running `newspaper schedule install`) voids every subscription; each device subscribes again on its next visit to Today.
 
 - **When it goes out:** without `notice_time` (in `[general]`), when each edition is published. With `notice_time = "07:30"` (local `HH:MM`, up to 22:59), the `Newspaper aviso` task wakes the PC at that time and sends it, retrying for 9 minutes while the network comes back; `generate` and `fetch` leave it to the task until 5 minutes past that time.
-- **Reading without the PC:** when the notice arrives, the installed app saves a read-only copy of the latest edition and of Guardado (all or nothing; `status` shows it as «guardada»). While the PC sleeps or is out of reach, Today, its notes, Pleno día and Guardado open from that copy, with the line «Sin el PC: …» at the foot of Today. Archive and search need the PC. The original articles still open, since they come from the internet. Openings, the notice's marks and the sources you open are queued with their time and sent when the PC answers again.
+- **Reading without the PC:** when a Web Push notice arrives (not one by ntfy), or whenever you open it with the PC awake, the installed app saves a read-only copy of the latest edition and of Guardado (all or nothing; `status` shows it as «guardada»). While the PC sleeps or is out of reach, Today, its notes, Pleno día and Guardado open from that copy, with the line «Sin el PC: …» at the foot of Today. Archive and search need the PC. The original articles still open, since they come from the internet. Openings, the notice's marks and the sources you open are queued with their time and sent when the PC answers again.
 - **Android battery savers** can keep the notice from showing: allow the browser that installed the app to start on its own and to run without battery restrictions. A phone short on memory may still close the browser before it saves the copy.
+
+**On a phone short on memory**, Android may close Chrome before it even shows the notice. With an `[ntfy]` table in `newspaper.toml` (commented in the example), the daily notice and `newspaper notify` go through the [ntfy](https://ntfy.sh) app instead: the PC posts them to your topic, whose long random name is its only password, and ntfy.sh sees the notice's text. The test notice sent when you turn notices on still goes by Web Push.
 
 </details>
 

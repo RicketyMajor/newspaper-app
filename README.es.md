@@ -36,7 +36,7 @@ Un diario personal. Defines tus fuentes RSS por sección; cada mañana Newspaper
 
 Los sitios de noticias y los lectores de feeds te entregan el mismo acontecimiento cinco veces, de cinco medios, en cinco pestañas. Newspaper los lee todos y escribe **una nota por acontecimiento**, con un breve «dónde difieren» cuando los medios no coinciden, para que la edición se pueda terminar: unas diez notas esenciales y veinticinco minutos, y después el resto si quieres.
 
-Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](https://ollama.com); no hay cuentas, ni servicios en la nube, ni seguimiento. Las únicas salidas a internet son tus feeds, los artículos originales y (si activas el aviso diario) el servicio de push del propio navegador, cifrado de extremo a extremo.
+Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](https://ollama.com); no hay cuentas, ni servicios en la nube, ni seguimiento. Las únicas salidas a internet son tus feeds, los artículos originales y (si activas el aviso diario) el servicio de push del propio navegador, cifrado de extremo a extremo, o tu tema de ntfy, que ve el texto del aviso.
 
 ## Qué hace
 
@@ -44,7 +44,7 @@ Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](h
 - **Una edición que se termina**: un núcleo de unas diez notas (la portada y la primera de cada sección); un sol sube mientras lees, hasta «Pleno día».
 - **Tres lectores, un solo estado**: un lector de terminal (Textual), uno web local, y esa misma web como app instalable en el teléfono a través de [Tailscale](https://tailscale.com). Las marcas de leída, favorita y guardada se comparten.
 - **Una mañana sin manos** (Windows): el PC despierta, escribe la edición, manda el aviso diario y vuelve a dormir cuando nadie lo está usando.
-- **Leer sin el PC**: cuando llega el aviso, la app del teléfono guarda una copia de solo lectura de la edición, para leer mientras el PC duerme.
+- **Leer sin el PC**: cuando llega un aviso por Web Push, o cada vez que la abres con el PC despierto, la app del teléfono guarda una copia de solo lectura de la edición, para leer mientras el PC duerme.
 - **Tus intereses**: frases opcionales de «me interesa» y «no me interesa»; el modelo local etiqueta cada acontecimiento con una de ellas y la edición se ordena en consecuencia.
 - **Reglas por feed**: descartar o mover artículos según su URL o su título (`exclude`, `route`).
 - **La cartelera del día** (opcional): las funciones de hoy y mañana de tus cines en una pestaña «Cine» (y la tecla `c` del lector de terminal), leídas de sus páginas cada 3 horas como máximo: el Cine Arte Normandie, el escenario del CEINA o cualquier sala de [encartelera.cl](https://www.encartelera.cl).
@@ -188,8 +188,10 @@ El lector web solo escucha en `127.0.0.1`. [Tailscale](https://tailscale.com) lo
 Al pie de Hoy, **Avisarme cuando salga …** suscribe ese navegador (la app instalada cuenta como uno aparte) a un aviso por Web Push. El aviso va cifrado de extremo a extremo y pasa por el servicio de push del navegador (el de Google, en Chrome): la primera salida del PC a internet que no es un feed. Su clave de firma, `vapid.pem`, está junto a la base. Una clave nueva (tras borrarla y correr `newspaper schedule install`) anula todas las suscripciones; cada dispositivo se suscribe otra vez en su próxima visita a Hoy.
 
 - **Cuándo sale:** sin `notice_time` (en `[general]`), cuando se publica cada edición. Con `notice_time = "07:30"` (`HH:MM` local, hasta las 22:59), la tarea `Newspaper aviso` despierta el PC a esa hora y lo manda, reintentando durante 9 minutos mientras vuelve la red; `generate` y `fetch` se lo dejan a la tarea hasta 5 minutos después de esa hora.
-- **Leer sin el PC:** cuando llega el aviso, la app instalada guarda una copia de solo lectura de la última edición y de Guardado (todo o nada; `status` lo muestra como «guardada»). Mientras el PC duerme o no está al alcance, Hoy, sus notas, Pleno día y Guardado se abren desde esa copia, con la línea «Sin el PC: …» al pie de Hoy. El archivo y la búsqueda necesitan el PC. Los artículos originales se siguen abriendo, porque vienen de internet. Las aperturas, las marcas del aviso y las fuentes que abres quedan en una cola con su hora y se mandan cuando el PC vuelve a responder.
+- **Leer sin el PC:** cuando llega un aviso por Web Push (no uno por ntfy), o cada vez que la abres con el PC despierto, la app instalada guarda una copia de solo lectura de la última edición y de Guardado (todo o nada; `status` lo muestra como «guardada»). Mientras el PC duerme o no está al alcance, Hoy, sus notas, Pleno día y Guardado se abren desde esa copia, con la línea «Sin el PC: …» al pie de Hoy. El archivo y la búsqueda necesitan el PC. Los artículos originales se siguen abriendo, porque vienen de internet. Las aperturas, las marcas del aviso y las fuentes que abres quedan en una cola con su hora y se mandan cuando el PC vuelve a responder.
 - **Los ahorradores de batería de Android** pueden impedir que el aviso se muestre: permite que el navegador que instaló la app se inicie solo y funcione sin restricciones de batería. Un teléfono con poca memoria puede cerrar el navegador antes de que guarde la copia.
+
+**En un teléfono con poca memoria**, Android puede cerrar Chrome antes incluso de que muestre el aviso. Con una tabla `[ntfy]` en `newspaper.toml` (comentada en el ejemplo), el aviso diario y `newspaper notify` salen en cambio por la app [ntfy](https://ntfy.sh): el PC los publica en tu tema, cuyo nombre largo y al azar es su única contraseña, y ntfy.sh ve el texto del aviso. La prueba que se manda al activar los avisos sigue por Web Push.
 
 </details>
 

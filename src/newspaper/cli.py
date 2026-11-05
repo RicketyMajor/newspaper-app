@@ -307,7 +307,8 @@ def config(ctx: click.Context) -> None:
 
 
 def _funnel(config: NewspaperConfig, edition: Edition) -> str:
-    """Notice → arrived → saved → tapped (the phone) → opened → read (any device)."""
+    """Notice → arrived → saved → tapped (the phone) → opened → read (any device). By ntfy
+    (#28) the service worker sees no notice: only the notice, the opening and the reading."""
     zone = ZoneInfo(config.general.timezone)
 
     def at(moment: datetime | None) -> str:
@@ -316,15 +317,22 @@ def _funnel(config: NewspaperConfig, edition: Edition) -> str:
     core, _ = queries.reading_order(edition.notes)
     opened = sum(n.opened_at is not None for n in edition.notes)
     notice = f"Aviso {at(edition.notified_at)}" if edition.notified_at else "Sin aviso"
+    if config.ntfy:
+        head = f"{notice} por ntfy · abierta {at(edition.opened_at)}"
+    else:
+        head = (
+            f"{notice} · llegó {at(edition.delivered_at)} · guardada {at(edition.cached_at)}"
+            f" · tocado {at(edition.clicked_at)} · abierta {at(edition.opened_at)}"
+        )
     return (
-        f"{notice} · llegó {at(edition.delivered_at)} · guardada {at(edition.cached_at)}"
-        f" · tocado {at(edition.clicked_at)} · abierta {at(edition.opened_at)}"
-        f" · {opened} {'nota abierta' if opened == 1 else 'notas abiertas'}"
+        f"{head} · {opened} {'nota abierta' if opened == 1 else 'notas abiertas'}"
         f" · {sum(n.is_read for n in core)} de {len(core)} esenciales leídas"
     )
 
 
-def _subscriptions(s: Session) -> str:
+def _subscriptions(config: NewspaperConfig, s: Session) -> str:
+    if config.ntfy:
+        return "Avisos: por ntfy"
     live = list(s.scalars(select(PushSubscription).where(PushSubscription.gone_at.is_(None))))
     if not live:
         return "Avisos: ninguna suscripción"
@@ -379,6 +387,6 @@ def status(ctx: click.Context) -> None:
         shown = today or latest
         if shown is not None:
             console.print(_funnel(config, shown), markup=False, highlight=False, soft_wrap=True)
-        console.print(_subscriptions(s), markup=False, highlight=False)
+        console.print(_subscriptions(config, s), markup=False, highlight=False)
         if config.cine.salas:
             console.print(_cinema(config, s), markup=False, highlight=False, soft_wrap=True)

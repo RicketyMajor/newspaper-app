@@ -11,6 +11,10 @@ timezone = "America/Santiago"
 edition_hour = 6                    # local hour (0-23) to prepare the daily edition
 # notice_time = "07:30"             # local HH:MM for the notice; unset: when the edition is ready
 
+# [ntfy]                            # the daily notice through the ntfy app, not Web Push
+# url = "https://ntfy.sh/<a long random topic>"   # the topic's name is its password
+# click = "https://<pc>.<tailnet>.ts.net/"        # what tapping the notice opens
+
 [llm]
 base_url = "http://localhost:11434" # Ollama
 model = "gemma3:12b"                # writes the notes

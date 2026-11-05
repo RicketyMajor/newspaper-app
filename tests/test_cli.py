@@ -252,6 +252,28 @@ def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded)
     assert "Avisos: 1 suscripción (1 en el teléfono)" in result.output
 
 
+NTFY_TOML = '\n[ntfy]\nurl = "https://ntfy.sh/alba-x"\nclick = "https://pc.ts.net/"\n'
+
+
+def test_status_with_ntfy_names_it_and_skips_what_only_the_worker_measures(
+    tmp_path, engine, seeded
+):
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["front"])
+        note.opened_at = datetime(2026, 10, 10, 10, 46)
+        note.edition.notified_at = datetime(2026, 10, 10, 10, 30)  # UTC: 07:30 in Santiago
+        note.edition.opened_at = datetime(2026, 10, 10, 10, 46)
+    config = write_config(tmp_path, tmp_path / "newspaper.db", extra=NTFY_TOML)
+
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Aviso 07:30 por ntfy · abierta 07:46 · 1 nota abierta · 0 de 2 esenciales leídas"
+    ) in result.output
+    assert "llegó" not in result.output and "Avisos: por ntfy" in result.output
+
+
 def test_status_shows_each_cinema(tmp_path, engine):
     read = datetime(2026, 11, 1, 9, 2)  # UTC: 06:02 in Santiago
     with Session(engine) as s, s.begin():
