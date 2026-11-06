@@ -61,8 +61,10 @@ async def test_section_and_archive_navigation(config, seeded):
     app = NewspaperApp(config)
     async with app.run_test() as pilot:
         await pilot.press("j", "l")
+        await pilot.pause()  # the new screen mounts its list after the key is handled
         assert entries(app.screen) == [("note", seeded["world"])]
         await pilot.press("a")
+        await pilot.pause()
         assert isinstance(app.screen, ListScreen)
         assert entries(app.screen) == [("edition", seeded["edition"])]
 

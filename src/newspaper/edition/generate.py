@@ -69,6 +69,9 @@ _INLINE_TAG = re.compile(r"</?(?:a|b|em|i|span|strong|u)(?=[\s/>])[^<>]*>", re.I
 _BRACE_LINE = re.compile(r"^[ \t\xa0]*[{}][ \t\xa0{}]*$", re.MULTILINE)
 _LINE_END_SPACE = re.compile(r"[ \t\xa0]+\n")
 _EXTRA_BREAKS = re.compile(r"\n{3,}")
+# A caption's credit the model copies from the page as a paragraph (#19): "Foto | EFE".
+# The ":" or "|" right after the word keeps "Fotografía y memoria…" a sentence.
+_PHOTO_CREDIT = re.compile(r"^[ \t]*(?:foto(?:grafía)?|imagen)[ \t]*[:|][^\n]*$", re.I | re.M)
 
 
 def _cut(d: Draft) -> bool:
@@ -82,6 +85,7 @@ def _cut(d: Draft) -> bool:
 
 def _clean_text(text: str) -> str:
     text = _BRACE_LINE.sub("", _INLINE_TAG.sub("", _BLOCK_TAG.sub("\n\n", text)))
+    text = _PHOTO_CREDIT.sub("", text)
     text = _EXTRA_BREAKS.sub("\n\n", _LINE_END_SPACE.sub("\n", text))
     return text.strip(" \t\n\xa0{}")
 

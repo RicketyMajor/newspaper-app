@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from newspaper.ai.ollama import NEUTRAL_TOPICS, Draft, OllamaError, OllamaUnavailableError
 from newspaper.config.models import InterestsConfig
-from newspaper.edition.generate import _capitalize, _draft, generate, ingest
+from newspaper.edition.generate import _capitalize, _clean_text, _draft, generate, ingest
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
@@ -369,6 +369,26 @@ def test_cleanup_keeps_autolinks_and_angle_brackets_that_are_not_html():
         "Informe en <https://example.org/informe>. Usa `vector<int>` y ac."
         " Escribe a <a.vera@example.org> o <p.ramos@ciper.cl>."
     )
+
+
+@pytest.mark.parametrize(
+    "credit",
+    [
+        "Foto | Juan Pérez vía Getty Images",
+        "Foto: Agencia Uno",
+        "FOTOGRAFÍA: EFE",
+        "Imagen | Reuters",
+    ],
+)
+def test_clean_text_drops_photo_credit_lines(credit):
+    # #19: the extracted page keeps the caption's credit, and the model copies it as a paragraph.
+    text = f"Primer párrafo.\n\n{credit}\n\nSegundo párrafo."
+    assert _clean_text(text) == "Primer párrafo.\n\nSegundo párrafo."
+
+
+def test_clean_text_keeps_a_sentence_that_starts_with_foto():
+    text = "Fotografía y memoria se cruzan en la muestra."
+    assert _clean_text(text) == text
 
 
 def test_a_body_of_only_leftovers_counts_as_empty_and_is_retried():
