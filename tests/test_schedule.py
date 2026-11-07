@@ -190,11 +190,13 @@ def answering(values):
     values = list(values)
 
     def answer():
+        answer.calls += 1
         value = values.pop(0) if len(values) > 1 else values[0]
         if isinstance(value, Exception):
             raise value
         return value
 
+    answer.calls = 0
     return answer
 
 
@@ -215,8 +217,13 @@ def hold_and_sleep(monkeypatch, needed, wakes, sleep=None, inputs=((0, 0),)):
     def record(wake, fresh, used, still_needed, visited):
         events.append(("sleep", wake, fresh, still_needed()))
 
-    with schedule.keep_awake(answering(needed), sleep=sleep or record):
-        time.sleep(0.1)
+    asked = answering(needed)
+    with schedule.keep_awake(asked, sleep=sleep or record):
+        # Every answer given, and one more: the hold went past the last. A fixed 0.1 s was too
+        # short for six renewals on Windows' 15.6 ms timer, and failed 1 run in 8.
+        deadline = time.monotonic() + 5
+        while asked.calls <= len(needed) and time.monotonic() < deadline:
+            time.sleep(0.01)
     assert events[-1] == FREE
     return events
 
