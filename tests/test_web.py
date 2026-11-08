@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from newspaper import schedule
 from newspaper.config.models import CINEMA_NAMES, CineConfig
+from newspaper.edition.images import images_folder
 from newspaper.edition.today import local_today
 from newspaper.storage.models import (
     Article,
@@ -20,6 +21,8 @@ from newspaper.storage.models import (
     utcnow,
 )
 from newspaper.web.app import create_app
+
+from .conftest import JPEG, give_photo
 
 
 def test_front_page_shows_lead_note_and_sections(client, seeded):
@@ -208,6 +211,32 @@ def test_note_markdown_never_loads_external_images(client, engine, seeded):
     with Session(engine) as s, s.begin():
         s.get(Note, seeded["world"]).body = "Texto ![x](https://evil.test/t.png)"
     assert "<img" not in client.get(f"/n/{seeded['world']}").text
+
+
+def test_a_notes_photo_is_served_from_this_pc(client, engine, config, seeded):
+    give_photo(engine, config, seeded["front"])
+    response = client.get(f"/img/{seeded['front']}")
+    assert response.status_code == 200 and response.content == JPEG
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_no_photo_no_file_or_no_note_is_a_404(client, engine, config, seeded):
+    assert client.get(f"/img/{seeded['world']}").status_code == 404  # it has none
+    give_photo(engine, config, seeded["front"], file=False)  # the file went missing
+    assert client.get(f"/img/{seeded['front']}").status_code == 404
+    assert client.get("/img/999").status_code == 404
+
+
+@pytest.mark.parametrize("name", ["../newspaper.db", "1.svg", "x.jpg", "1.jpg\n", "1.JPG"])
+def test_a_photo_name_out_of_shape_is_never_served(client, engine, config, seeded, name):
+    # The file name never comes from the request, and only one shape of it is trusted.
+    if "/" not in name:
+        give_photo(engine, config, seeded["front"], "1.jpg")  # the folder exists, with a file
+        (images_folder(config) / name.strip()).write_bytes(JPEG)
+    give_photo(engine, config, seeded["front"], name, file=False)
+    assert client.get(f"/img/{seeded['front']}").status_code == 404
 
 
 def test_rejects_foreign_host_header(client):

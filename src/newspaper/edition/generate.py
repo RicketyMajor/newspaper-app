@@ -30,6 +30,7 @@ from ..processing.select import Interest, Selected, select_groups
 from ..storage import queries
 from ..storage.database import open_db
 from ..storage.models import Article, Edition, EditionStatus, Note, note_articles, utcnow
+from .images import attach_images, images_folder, prune_images
 from .today import local_today, running
 
 MAX_CHARS_PER_ARTICLE = 6000
@@ -144,6 +145,12 @@ def generate(
         message = str(e) or type(e).__name__
         _fail(engine, edition_id, message)
         return GenerateResult("failed", message, day)
+    try:  # the photos (#18): the edition is out already, so they can only add to it
+        folder = images_folder(config)
+        attach_images(engine, edition_id, http, folder, log)
+        prune_images(engine, folder, day)
+    except Exception as e:
+        log(f"Fotos: {str(e) or type(e).__name__}")
     return GenerateResult("ready", f"Edición publicada con {len(drafts)} notas.", day)
 
 
@@ -186,11 +193,10 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
         return None, busy
 
 
-def _drop_notes(s: Session, edition: Edition) -> None:
-    """Remove a previous attempt's notes (forced regeneration) and their search rows."""
-    queries.unindex(s, "note", [n.id for n in edition.notes])
-    queries.unindex(s, "article", [a.id for n in edition.notes for a in n.articles])
-    edition.notes.clear()
+def _unindex_notes(s: Session, notes: list[Note]) -> None:
+    """Remove a previous attempt's notes (forced regeneration) and their articles from search."""
+    queries.unindex(s, "note", [n.id for n in notes])
+    queries.unindex(s, "article", [a.id for n in notes for a in n.articles])
 
 
 def ingest(engine: Engine, config: NewspaperConfig, http: httpx.Client) -> tuple[int, list[str]]:
@@ -259,14 +265,16 @@ def _build_notes(
 
         missing = [a for a in pending if a.content is None]
         log(f"Extrayendo texto de {len(missing)} artículos…")
-        texts = extract_many(http, [a.url for a in missing])
-        if failed := sum(text is None for text in texts.values()):
+        pages = extract_many(http, [a.url for a in missing])
+        if failed := sum(page.text is None for page in pages.values()):
             log(f"  {failed} de {len(missing)} sin texto completo (se usa el extracto)")
         for a in missing:
-            text = texts[a.url]
+            text, image = pages[a.url]
             a.content, a.content_source = (
                 (text, "full") if text else (a.summary or a.title, "excerpt")
             )
+            if image:  # the page's photo beats the feed's (#18)
+                a.image_url = image
 
         need = [a for a in pending if a.embedding is None]
         log(f"Calculando similitud de {len(need)} artículos…")
@@ -396,8 +404,8 @@ def _draft(llm: Ollama, sel: Selected, language: str, log: Callable[[str], None]
 def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
     with Session(engine) as s, s.begin():
         edition = s.get(Edition, edition_id)
-        _drop_notes(s, edition)
-        s.flush()
+        old = list(edition.notes)
+        _unindex_notes(s, old)  # first: the new notes index the same articles again
         for rank, d in enumerate(drafts):
             articles = [s.get(Article, a.id) for a in d.selected.items]
             text = " ".join(filter(None, [d.headline, d.dek, d.body, d.differences]))
@@ -423,6 +431,11 @@ def _publish(engine: Engine, edition_id: int, drafts: list[_NoteDraft]) -> None:
             queries.index_for_search(s, "note", note.id, d.headline, f"{d.dek} {d.body}")
             for a in articles:
                 queries.index_for_search(s, "article", a.id, a.title, a.content or a.summary)
+        # Only now: SQLite gives a new row the highest id + 1, so the new notes never take the
+        # old ones' ids, and /img/{id} (cached as immutable) never names another photo (#18).
+        # ponytail: a forced run that publishes no notes frees the top ids for the next to reuse.
+        for note in old:
+            edition.notes.remove(note)
         edition.status = EditionStatus.ready
         edition.finished_at = utcnow()
 

@@ -5,6 +5,7 @@ import functools
 import hashlib
 import json
 import logging
+import re
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Annotated, Literal
@@ -14,7 +15,13 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -27,6 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .. import schedule
 from ..config.models import NewspaperConfig
 from ..dates import long_date
+from ..edition.images import TYPES, images_folder
 from ..edition.today import local_today, notice_at, running, today_banner
 from ..storage import queries
 from ..storage.database import open_db
@@ -34,6 +42,8 @@ from ..storage.models import Article, Edition, EditionStatus, Note, clamped, utc
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
+# The only shape of photo file name the reader trusts (#18): generate writes "<note id>.<format>".
+IMAGE_NAME = re.compile(r"[0-9]+\.(jpg|png|webp|avif)")
 log = logging.getLogger(__name__)
 
 
@@ -163,6 +173,16 @@ def create_app(config: NewspaperConfig) -> FastAPI:
 
     DB = Annotated[Session, Depends(db)]  # noqa: N806 - type alias
     push = _push(config)
+    images = images_folder(config)
+
+    def photo(note: Note | None) -> Path | None:
+        """The note's photo file on this PC (#18), if it has one and it is there. The path comes
+        from the database and only in IMAGE_NAME's shape, never from the request."""
+        name = note.image if note else None
+        if not name or not IMAGE_NAME.fullmatch(name):
+            return None
+        path = images / name
+        return path if path.is_file() else None
 
     def render(request: Request, s: Session, name: str, **context) -> HTMLResponse:
         today = queries.today_edition(s, local_today(config))
@@ -363,6 +383,19 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         s.commit()
         return RedirectResponse(url, status_code=307)
 
+    @app.get("/img/{note_id}")
+    def note_photo(s: DB, note_id: int):
+        """A note's photo, kept on this PC: a page never loads an image from another site. Note
+        ids are never reused (not even by a forced run), so the URL's photo never changes."""
+        path = photo(s.get(Note, note_id))
+        if path is None:
+            raise HTTPException(404, "Foto no encontrada")
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=31536000, immutable",
+        }
+        return FileResponse(path, media_type=TYPES[path.suffix[1:]], headers=headers)
+
     @app.post("/{kind}/{obj_id}/estado")
     def toggle(
         request: Request,
@@ -490,8 +523,14 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             for b in boards
         ] if salas else []  # fmt: skip
         cine = f"|c:{hashlib.sha256(repr(shown).encode()).hexdigest()[:12]}" if salas else ""
+        # The photos (#18) come just after the edition is out, and go after 60 days: the pages
+        # change with them. Only the front page's travel; a missing file would fail the copy.
+        named = [(n.id, n.image) for n in notes if n.image]
+        pics = f"|i:{hashlib.sha256(repr(named).encode()).hexdigest()[:12]}" if named else ""
+        front_photos = [f"/img/{n.id}" for n in core + rest if n.is_front and photo(n)]
         return {
-            "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine}",
+            "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine}"
+            + pics,
             "edition": stamp,
             "day": day,
             "pages": [f"/e/{day}"]
@@ -509,7 +548,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "/static/icon-192.png",
                 "/static/icon-512.png",
             ]
-            + [f"/static/fonts/{p.name}" for p in sorted((STATIC / "fonts").glob("*.woff2"))],
+            + [f"/static/fonts/{p.name}" for p in sorted((STATIC / "fonts").glob("*.woff2"))]
+            + front_photos,
             "originals": {str(a.id): a.url for a in sources.values()},
             "base": {
                 "n": {str(n.id): marks(n) for n in notes if marks(n)},

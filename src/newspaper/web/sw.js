@@ -159,8 +159,10 @@ async function download(cache, urls) {  // 4 at a time, one retry each
   await Promise.all([worker(), worker(), worker(), worker()]);
   return ok;
 }
+// Statics and the notes' photos (#18): saved whatever their type, served from the copy first.
+const isAsset = (path) => /^\/(static|img)\//.test(path) || path === "/manifest.webmanifest";
 async function save(cache, url) {
-  const page = !url.startsWith("/static/") && url !== "/manifest.webmanifest";
+  const page = !isAsset(url);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // X-Sin-PC: the server draws the copy without the day's passing banner.
@@ -184,9 +186,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || request.method !== "GET") return;
   if (request.mode === "navigate") event.respondWith(navigate(event, url));
-  else if (url.pathname.startsWith("/static/") || url.pathname === "/manifest.webmanifest") {
-    event.respondWith(asset(request));
-  }
+  else if (isAsset(url.pathname)) event.respondWith(asset(request));
 });
 
 async function navigate(event, url) {

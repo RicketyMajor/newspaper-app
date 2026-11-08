@@ -18,6 +18,8 @@ from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
 
+from .conftest import JPEG
+
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)  # 12:00 in Santiago
 TODAY = date(2026, 10, 10)
@@ -43,13 +45,16 @@ def http(feeds_ok: bool = True) -> httpx.Client:
         "https://ciper.test/feed": rss(SENADO, ATACAMA),
         "https://bbc.test/rss": rss(SENADO_BBC),
         SENADO[1]: (FIXTURES / "article.html").read_bytes(),
+        "https://ciper.test/fotos/senado.jpg": JPEG,  # the page's og:image
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if url.endswith(("/feed", "/rss")) and not feeds_ok:
             return httpx.Response(500)
-        return httpx.Response(200, content=pages[url]) if url in pages else httpx.Response(404)
+        if url not in pages:
+            return httpx.Response(404)
+        return httpx.Response(200, content=iter([pages[url]]))  # streamed, as on the wire
 
     return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -166,6 +171,32 @@ def test_generate_publishes_a_ready_edition(config, engine):
         assert senado.read_minutes >= 1
         assert [h.id for h in queries.search(s, "lagarto")] == [atacama.articles[0].id]
         assert queries.search(s, "Nota Senado")[0].id == senado.id
+
+
+def test_published_notes_keep_a_photo_from_their_pages(config, engine, tmp_path):
+    lines = []
+    assert run(config, log=lines.append).status == "ready"
+    with Session(engine) as s:
+        senado, atacama = queries.front_page(s, queries.latest_ready_edition(s).id)
+        assert (senado.image, senado.image_credit) == (f"{senado.id}.jpg", "CIPER")
+        assert (atacama.image, atacama.image_credit) == (None, None)  # its page has none
+        assert senado.articles[0].image_url == "https://ciper.test/fotos/senado.jpg"
+    assert (tmp_path / "images" / senado.image).read_bytes() == JPEG
+    assert "Fotos: 1 de 2" in lines
+
+
+def test_a_photo_that_breaks_never_fails_the_edition(config, engine, monkeypatch):
+    def broken(client, wanted):
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr("newspaper.edition.images._download_all", broken)
+    lines = []
+    assert run(config, log=lines.append).status == "ready"
+    assert "Fotos: disco lleno" in lines
+    with Session(engine) as s:
+        edition = queries.latest_ready_edition(s)
+        assert edition.edition_date == TODAY
+        assert [n.image for n in edition.notes] == [None, None]
 
 
 def test_feed_rules_exclude_and_route(config, engine):
@@ -466,6 +497,22 @@ def test_ready_edition_is_kept_unless_forced(config, engine):
         [edition] = queries.list_editions(s)
         assert len(edition.notes) == 2
         assert len(queries.search(s, "lagarto")) == 1
+
+
+def test_a_forced_run_gives_its_notes_new_ids(config, engine, tmp_path):
+    # /img/{id} is cached as immutable: an id the forced run reused would show the old photo.
+    def notes():
+        with Session(engine) as s:
+            return {n.id: n.image for n in s.scalars(select(Note))}
+
+    assert run(config).status == "ready"
+    before = notes()
+    assert run(config, force=True).status == "ready"
+    after = notes()
+    assert len(after) == 2 and not set(before) & set(after)
+    assert sorted(p.name for p in (tmp_path / "images").iterdir()) == sorted(
+        name for name in after.values() if name
+    )  # the old notes' photos are gone
 
 
 def test_failed_forced_regeneration_keeps_todays_edition(config, engine):

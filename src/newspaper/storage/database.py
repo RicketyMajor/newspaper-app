@@ -20,7 +20,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 # ponytail: hand-written migration for columns added after the first release; move to a
 # migration tool (Alembic) if a third change like this shows up.
 ADDED_COLUMNS = {
-    "notes": {"interest": "TEXT", "interest_liked": "BOOLEAN", "opened_at": "DATETIME"},
+    "articles": {"image_url": "TEXT"},
+    "notes": {
+        "interest": "TEXT",
+        "interest_liked": "BOOLEAN",
+        "opened_at": "DATETIME",
+        "image": "TEXT",
+        "image_credit": "TEXT",
+    },
     "editions": {
         "notified_at": "DATETIME",
         "delivered_at": "DATETIME",

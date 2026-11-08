@@ -92,6 +92,8 @@ class Article(ReadingState, Base):
     published_at: Mapped[datetime | None]
     fetched_at: Mapped[datetime] = mapped_column(default=utcnow)
     embedding: Mapped[bytes | None] = mapped_column(LargeBinary)
+    # Its photo on the outlet (#18): the feed's, replaced by the page's og:image. http(s) only.
+    image_url: Mapped[str | None] = mapped_column(Text)
 
     @property
     def when(self) -> datetime:
@@ -119,6 +121,10 @@ class Note(ReadingState, Base):
     interest: Mapped[str | None] = mapped_column(Text)  # the reader's phrase the model picked
     interest_liked: Mapped[bool | None]  # True: "sí", False: "no"
     opened_at: Mapped[datetime | None]  # first opening; is_read stays for reaching the sources
+    # Its photo, kept on this PC (#18): the file in the images folder ("123.jpg") and the outlet
+    # it came from. Both go back to None after 60 days.
+    image: Mapped[str | None] = mapped_column(Text)
+    image_credit: Mapped[str | None] = mapped_column(Text)
 
     edition: Mapped[Edition] = relationship(back_populates="notes")
     articles: Mapped[list[Article]] = relationship(

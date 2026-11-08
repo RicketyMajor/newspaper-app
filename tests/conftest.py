@@ -6,12 +6,26 @@ from sqlalchemy.orm import Session
 
 from newspaper import schedule
 from newspaper.config.models import NewspaperConfig
+from newspaper.edition.images import images_folder
 from newspaper.storage import queries
 from newspaper.storage.database import open_db
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
 from newspaper.web.app import create_app
 
 SAME = {"sec-fetch-site": "same-origin"}  # what the page's own fetches and forms send
+JPEG = b"\xff\xd8\xff\xe0" + bytes(20_000)  # a photo's first bytes, past the 10 KB floor
+
+
+def give_photo(engine, config, note_id: int, name: str | None = None, *, file: bool = True):
+    """Note `note_id` gets a photo named `name` (its id's .jpg), with its file unless told."""
+    name = name or f"{note_id}.jpg"
+    if file:
+        folder = images_folder(config)
+        folder.mkdir(exist_ok=True)
+        (folder / name).write_bytes(JPEG)
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, note_id)
+        note.image, note.image_credit = name, "CIPER"
 
 
 @pytest.fixture(autouse=True)

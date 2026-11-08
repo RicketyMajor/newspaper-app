@@ -162,6 +162,22 @@ def test_open_db_adds_the_notice_columns_to_an_older_database(config):
     assert "opened_at" in notes
 
 
+def test_open_db_adds_the_photo_columns_to_an_older_database(config):
+    old = sqlite3.connect(config.storage.database_path)
+    old.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT)")
+    old.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, headline TEXT)")
+    old.commit()
+    old.close()
+
+    engine = open_db(config)
+
+    with engine.connect() as c:
+        articles = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(articles)")}
+        notes = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(notes)")}
+    assert "image_url" in articles
+    assert {"image", "image_credit"} <= notes
+
+
 def test_push_subscriptions_are_unique_by_endpoint(engine):
     with Session(engine) as s, s.begin():
         s.add(PushSubscription(endpoint="https://fcm.googleapis.com/x", p256dh="k", auth="a"))

@@ -29,6 +29,7 @@ class RawArticle:
     section: str
     language: str
     published_at: datetime | None  # naive UTC
+    image_url: str | None = None  # the feed's photo for it (#18)
 
 
 class BlockedURL(httpx.RequestError):
@@ -77,6 +78,28 @@ def clean_html(value: str) -> str:
     return " ".join(CONTROL.sub(" ", html.unescape(re.sub(r"<[^>]+>", " ", value))).split())
 
 
+def web_url(url: str | None) -> str | None:
+    """`url` if it is an absolute http(s) URL, else None."""
+    url = (url or "").strip()
+    return url if url.lower().startswith(("http://", "https://")) else None
+
+
+def _entry_image(entry) -> str | None:
+    """The entry's photo: Media RSS (an image, else a thumbnail), else an image enclosure."""
+    candidates = [
+        m.get("url")
+        for m in entry.get("media_content", [])
+        if m.get("medium") == "image" or (m.get("type") or "").startswith("image/")
+    ]
+    candidates += [m.get("url") for m in entry.get("media_thumbnail", [])]
+    candidates += [
+        e.get("href")
+        for e in entry.get("enclosures", [])
+        if (e.get("type") or "").startswith("image/")
+    ]
+    return next(filter(None, map(web_url, candidates)), None)
+
+
 def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
     parsed = feedparser.parse(data)
     if not parsed.entries:
@@ -110,6 +133,7 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
                 section=section,
                 language=feed.language,
                 published_at=published,
+                image_url=_entry_image(entry),
             )
         )
     return articles

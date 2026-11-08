@@ -1,12 +1,13 @@
 from datetime import datetime
 from pathlib import Path
 
+import feedparser
 import httpx
 import pytest
 
 from newspaper.config.models import FeedConfig
 from newspaper.ingestion import rss
-from newspaper.ingestion.extract import extract_many, extract_text
+from newspaper.ingestion.extract import Page, extract_many, extract_page
 from newspaper.ingestion.rss import clean_html, fetch_feed, parse_feed
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -67,23 +68,32 @@ def test_fetch_feed_parses_response():
     assert len(fetch_feed(client, CIPER)) == 2
 
 
-def test_extract_text_gets_article_body_and_drops_chrome():
+def test_extract_page_gets_article_body_and_its_photo_and_drops_chrome():
     url = "https://ciper.test/pensiones"
     html = (FIXTURES / "article.html").read_text(encoding="utf-8")
     client = client_for({url: httpx.Response(200, html=html)})
 
-    text = extract_text(client, url)
+    page = extract_page(client, url)
 
-    assert text is not None
-    assert "30 votos a favor" in text
-    assert "boletín" not in text
+    assert page.text is not None
+    assert "30 votos a favor" in page.text
+    assert "boletín" not in page.text
+    assert page.image == "https://ciper.test/fotos/senado.jpg"  # og:image, made absolute
+
+
+@pytest.mark.parametrize("image", ["data:image/png;base64,iVBORw0KGgo=", "javascript:alert(1)"])
+def test_extract_page_keeps_only_web_photos(image):
+    url = "https://ciper.test/pensiones"
+    html = (FIXTURES / "article.html").read_text(encoding="utf-8")
+    html = html.replace("/fotos/senado.jpg", image)
+    assert extract_page(client_for({url: httpx.Response(200, html=html)}), url).image is None
 
 
 def test_extract_returns_none_on_errors_and_short_pages():
     client = client_for({"https://x.test/short": httpx.Response(200, html="<p>Hola</p>")})
     assert extract_many(client, ["https://x.test/missing", "https://x.test/short"]) == {
-        "https://x.test/missing": None,
-        "https://x.test/short": None,
+        "https://x.test/missing": Page(None, None),
+        "https://x.test/short": Page(None, None),
     }
 
 
@@ -98,10 +108,24 @@ def test_extract_many_retries_failed_pages_one_at_a_time():
         return httpx.Response(503) if first_try else httpx.Response(200, html=html)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    texts = extract_many(client, ["https://ciper.test/a", "https://ciper.test/b"])
+    pages = extract_many(client, ["https://ciper.test/a", "https://ciper.test/b"])
 
-    assert all(texts.values())
+    assert all(page.text for page in pages.values())
     assert len(calls) == 4
+
+
+def test_a_retry_that_fails_keeps_the_photo_of_the_first_try():
+    # A paywall: the first read has the og:image but no text, and the retry gets a 503.
+    teaser = '<head><meta property="og:image" content="https://img.test/a.jpg"></head><p>Hola</p>'
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, html=teaser) if len(calls) == 1 else httpx.Response(503)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    url = "https://ciper.test/a"
+    assert extract_many(client, [url]) == {url: Page(None, "https://img.test/a.jpg")}
 
 
 def test_parse_keeps_only_web_links():
@@ -115,6 +139,29 @@ def test_parse_keeps_only_web_links():
     urls = [a.url for a in parse_feed(feed.encode(), CIPER)]
     assert urls[0] == "https://ok.test/a"
     assert all(u.startswith(("http://", "https://")) for u in urls)
+
+
+def test_entry_image_takes_the_feeds_photo_and_only_web_images():
+    tags = [
+        '<media:content url="https://img.test/a.jpg" medium="image"/>',
+        '<media:thumbnail url="https://img.test/b.jpg"/>',
+        '<enclosure url="https://img.test/c.jpg" type="image/jpeg" length="1"/>',
+        '<enclosure url="https://audio.test/d.mp3" type="audio/mpeg" length="1"/>',
+        '<media:content url="javascript:alert(1)" medium="image"/>',
+        "",
+    ]
+    items = "".join(
+        f"<item><title>T{i}</title><link>https://ok.test/{i}</link>{tag}</item>"
+        for i, tag in enumerate(tags)
+    )
+    feed = (
+        '<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">'
+        f"<channel>{items}</channel></rss>"
+    ).encode()
+    expected = ["https://img.test/a.jpg", "https://img.test/b.jpg", "https://img.test/c.jpg"]
+    expected += [None, None, None]
+    assert [rss._entry_image(e) for e in feedparser.parse(feed).entries] == expected
+    assert [a.image_url for a in parse_feed(feed, CIPER)] == expected
 
 
 def test_client_refuses_private_hosts_and_redirects_to_them(monkeypatch):

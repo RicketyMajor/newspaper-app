@@ -18,7 +18,7 @@ from newspaper.storage.models import (
 )
 from newspaper.web.app import create_app
 
-from .conftest import SAME
+from .conftest import SAME, give_photo
 
 PRELOAD = {"service-worker-navigation-preload": "true"}
 
@@ -39,6 +39,20 @@ def test_the_copy_lists_the_edition_guardado_and_their_sources(client, engine, s
     assert {"/static/icon-192.png", "/static/icon-512.png"} <= set(m["static"])
     assert set(m["originals"]) == {str(a) for a in seeded["articles"]}
     assert m["base"]["n"] == {str(front): "r", str(world): "f"}
+
+
+def test_the_copy_keeps_the_front_pages_photos_only(client, engine, config, seeded):
+    before = client.get("/sin-pc").json()["revision"]
+    front, world = seeded["front"], seeded["world"]
+    give_photo(engine, config, front)
+    give_photo(engine, config, world)
+    m = client.get("/sin-pc").json()
+    assert f"/img/{front}" in m["static"]
+    assert f"/img/{world}" not in m["static"]  # a section's note: read with the PC
+    assert m["revision"] != before  # photos arrive after the edition is out
+    # A missing file would fail the whole copy (all or nothing): it is left out.
+    give_photo(engine, config, front, "7.jpg", file=False)
+    assert not any(u.startswith("/img/") for u in client.get("/sin-pc").json()["static"])
 
 
 def test_a_read_mark_keeps_the_revision_and_guardado_changes_it(client, engine, seeded):
