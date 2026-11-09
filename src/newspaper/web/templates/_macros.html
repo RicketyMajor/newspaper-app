@@ -14,19 +14,80 @@
 {% if note.is_read %}<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>{% endif %}
 {%- endmacro %}
 
+{# A note's photo (#18), kept on this PC. Decorative: the headline says what it shows, so alt is
+   empty and the caption credits the outlet. No photo, no box: nothing at all. A thumbnail goes
+   without caption (its line names the outlets). app.js hides a box whose photo fails to load. #}
+{% macro photo(note, size='') -%}
+{% if note.image %}<figure class="ph{% if size %} {{ size }}{% endif %}"><img src="/img/{{ note.id }}" alt="" loading="lazy" decoding="async">{% if size != 'thumb' %}<figcaption class="cap">Foto: {{ note.image_credit }}</figcaption>{% endif %}</figure>{% endif %}
+{%- endmacro %}
+
+{# The kicker: an inverted stamp with the section, or «Sigue aquí» where the core's reading goes
+   on (data-seccion: what a copy without the PC shows instead once that note is read). A
+   section's first note says only «Sigue aquí»: its section heads the block already. #}
+{% macro stamp(note, next_core, section=True) -%}
+{% if note is sameas next_core %}<p class="sello" data-seccion="{{ note.section if section else '' }}">Sigue aquí · {{ outlets(note) }}</p>
+{%- elif section %}<p class="sello">{{ note.section }}</p>{% endif %}
+{%- endmacro %}
+
+{# The line under a card: who wrote it (or, under «Sigue aquí», which already names them, the
+   section) and how long it takes. #}
+{% macro meta(note, next_core, section=True) -%}
+<p class="meta">{% if note is not sameas next_core %}{{ outlets(note) }} · {% elif section %}{{ note.section }} · {% endif %}{{ note.read_minutes }}&nbsp;min
+  {%- if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %} {{ tags(note) }}</p>
+{%- endmacro %}
+
 {# The headline shares its view-transition-name with the note's h1: the card morphs into it. #}
-{% macro lead(note, kicker=None) %}
-<article class="big{% if note.is_read %} done{% endif %}">
-  {% if kicker %}<p class="k">{{ kicker }} · {{ outlets(note) }}</p>{% endif %}
-  <h3><a href="/n/{{ note.id }}" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</a></h3>
-  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
-  <p class="meta">{% if kicker %}{{ note.section }}{% else %}{{ outlets(note) }}{% endif %} · {{ note.read_minutes }}&nbsp;min
-    {%- if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %} {{ tags(note) }}</p>
+{% macro headline(note, level=3) -%}
+<h{{ level }}><a href="/n/{{ note.id }}" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</a></h{{ level }}>
+{%- endmacro %}
+
+{# The front page's main note: stamp, a big headline, the photo across, the dek and the minutes. #}
+{% macro lead(note, next_core) %}
+<article class="lead{% if note.is_read %} done{% endif %}">
+  {{ stamp(note, next_core) }}
+  {{ headline(note) }}
+  <div class="lead-body">
+    {{ photo(note, 'wide') }}
+    <div class="lead-text">
+      {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
+      {{ meta(note, next_core) }}
+    </div>
+  </div>
 </article>
 {% endmacro %}
 
+{# The rest of the front page, in columns. The photo comes first on screen, last in the reading
+   order: a screen reader meets the stamp and the headline first. #}
+{% macro card(note, next_core) %}
+<article class="card{% if note.is_read %} done{% endif %}">
+  {{ stamp(note, next_core) }}
+  {{ headline(note) }}
+  {{ meta(note, next_core) }}
+  {{ photo(note, 'col') }}
+</article>
+{% endmacro %}
+
+{# A section's first note: the headline with a medium photo beside it, then the dek. On the
+   section's own page its heading is the h1, so the headline is an h2. #}
+{% macro first(note, next_core, level=3) %}
+<article class="first{% if note.is_read %} done{% endif %}">
+  {{ stamp(note, next_core, section=False) }}
+  <div class="first-top">
+    {{ headline(note, level) }}
+    {{ photo(note, 'mid') }}
+  </div>
+  {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
+  {{ meta(note, next_core, section=False) }}
+</article>
+{% endmacro %}
+
+{# The rest of a section: a line with a square thumbnail at the right (none without a photo). #}
+{% macro row(note) %}
+<a class="row{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="row-text"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min</small></span>{{ photo(note, 'thumb') }}</a>
+{% endmacro %}
+
 {% macro line(note) %}
-<a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
+<a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
 {% endmacro %}
 
 {% macro original(a) -%}

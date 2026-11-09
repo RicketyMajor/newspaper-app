@@ -35,6 +35,7 @@ def test_the_copy_lists_the_edition_guardado_and_their_sources(client, engine, s
     assert {"/fin/2026-10-10", *guardado} <= set(m["pages"])
     assert any(u.startswith("/static/style.css?v=") for u in m["static"])
     assert "/static/fonts/newsreader-roman.woff2" in m["static"]
+    assert "/static/fonts/unifraktur.woff2" in m["static"]  # the nameplate's gothic too
     # The manifest's icons too, as it names them: Chrome asks for one on every page.
     assert {"/static/icon-192.png", "/static/icon-512.png"} <= set(m["static"])
     assert set(m["originals"]) == {str(a) for a in seeded["articles"]}

@@ -1,51 +1,58 @@
 {% extends "base.html" %}
-{% from "_macros.html" import lead, line %}
-{% block body_class %}sky{% endblock %}
-{% block head %}
-<script>
-  // Before the first paint: the sunrise plays once per edition, and the sun climbs from where
-  // it was on the last visit. Without storage, neither: the page just shows the sun in place.
-  try {
-    const day = "{{ edition.edition_date }}", root = document.documentElement;
-    const seen = localStorage["alba:visto"] === day;
-    const from = seen ? +(localStorage["alba:" + day] || 0) : 0;
-    if (!seen) root.classList.add("amanecer");
-    if (from < {{ core_read }}) {
-      root.classList.add("sube");
-      root.style.setProperty("--sol-desde", from / {{ core_total or 1 }});
-    }
-  } catch {}
-</script>
-{% endblock %}
+{% from "_macros.html" import lead, card, first, row %}
+{% block body_class %}hoy{% endblock %}
 {% block top %}
-<header class="top">
-  <h1 class="name">{{ paper }}</h1>
-  <p class="date">{{ edition.edition_date|long_date }}<br>{{ core_total }}&nbsp;{{ 'nota esencial' if core_total == 1 else 'notas esenciales' }} · {{ core_minutes }}&nbsp;min</p>
+{# The masthead between two ears: the core's progress (it leads to where the reading goes on,
+   or to Pleno día once it's all read) and today's cinema, or the minutes without [cine]. #}
+<header class="cabecera" data-day="{{ edition.edition_date }}">
+  <div class="mast">
+    <h1>{{ paper }}</h1>
+    <a class="ear left" href="{{ '/n/%d'|format(next_core.id) if next_core else '/fin/%s'|format(edition.edition_date) }}">
+      <span>Esenciales</span>
+      <b>{{ core_read }}/{{ core_total }}</b><span class="sr-only"> · {{ 'seguir leyendo' if next_core else 'Pleno día' }}</span>
+    </a>
+    {% if cine_today is not none %}
+    <a class="ear right" href="/cine">
+      <span>Cine hoy</span>
+      {% if cine_today %}<span><b>{{ cine_today }}</b> {{ 'función' if cine_today == 1 else 'funciones' }}</span>{% else %}<span>sin funciones</span>{% endif %}
+    </a>
+    {% else %}
+    <p class="ear right"><span>Lectura</span><span><b>{{ core_minutes }}</b>&nbsp;min</span></p>
+    {% endif %}
+  </div>
+  <p class="dateline"><span>{% if city %}{{ city }} · {% endif %}{{ edition.edition_date|long_date }}</span>
+    {%- if cine_today is not none %}<span>{{ core_minutes }}&nbsp;min<span class="sr-only"> de lo esencial</span></span>{% endif %}</p>
 </header>
-<p class="prog">Lo esencial: {{ core_read }} de {{ core_total }}.
-  {%- if core_total and core_read == core_total %} <a href="/fin/{{ edition.edition_date }}">Pleno día.</a>{% else %} El sol sube con cada una.{% endif %}</p>
-{# The sun is the core's progress: on the horizon with none read, at the top with all. #}
-<div class="rail" aria-hidden="true" data-day="{{ edition.edition_date }}" data-read="{{ core_read }}" style="--sol: {{ (core_read / core_total) if core_total else 0 }}"><i></i></div>
 {% endblock %}
 {% block content %}
 {% if front %}
-<section class="band" aria-labelledby="b-0" style="--i: 0">
-  <h2 class="opener" id="b-0">Portada</h2>
-  {% for note in front %}{% if note is sameas next_core %}{{ lead(note, 'Sigue aquí') }}{% else %}{{ line(note) }}{% endif %}{% endfor %}
-</section>
-{% endif %}
-{% for name, first, rest in sections %}
-<section class="band" aria-labelledby="b-{{ loop.index }}" style="--i: {{ loop.index }}">
-  <h2 class="opener" id="b-{{ loop.index }}">{{ name }} <small>{{ rest|length + 1 }}&nbsp;{{ 'nota' if not rest else 'notas' }}</small></h2>
-  {{ lead(first, 'Sigue aquí' if first is sameas next_core else None) }}
-  {% if rest %}
-  <details>
-    <summary>y {{ rest|length }} más en {{ name }}</summary>
-    <div class="more">{% for note in rest %}{{ line(note) }}{% endfor %}</div>
-  </details>
+<section class="portada" aria-labelledby="portada-t">
+  <h2 class="sr-only" id="portada-t">Portada</h2>
+  {{ lead(front[0], next_core) }}
+  {% if front|length > 1 %}
+  <div class="cols">{% for note in front[1:] %}{{ card(note, next_core) }}{% endfor %}</div>
   {% endif %}
 </section>
-{% endfor %}
+{% endif %}
+{% if sections %}
+<div class="secciones">
+  {% for name, head, rest in sections %}
+  {# Four lines in sight, as on paper; the rest folds under "y N más". #}
+  {% set shown, folded = rest[:4], rest[4:] %}
+  <section class="seccion" aria-labelledby="s-{{ loop.index }}">
+    <h2 class="sec" id="s-{{ loop.index }}">{{ name }} <small>{{ rest|length + 1 }}&nbsp;{{ 'nota' if not rest else 'notas' }}</small></h2>
+    {{ first(head, next_core) }}
+    {% for note in shown %}{{ row(note) }}{% endfor %}
+    {% if folded %}
+    <details>
+      <summary>y {{ folded|length }} más en {{ name }}</summary>
+      <div class="more">{% for note in folded %}{{ row(note) }}{% endfor %}</div>
+    </details>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
 <p class="sin-pc" role="status"{% if notice_time %} data-aviso="{{ notice_time }}"{% endif %} hidden></p>
 {% if notice_key %}<p class="aviso" data-key="{{ notice_key }}" data-name="{{ paper }}" hidden></p>{% endif %}
 {% endblock %}

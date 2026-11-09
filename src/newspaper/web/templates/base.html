@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <meta name="theme-color" content="#F2F4F5" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0C1320" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F3EEE3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1C1B19" media="(prefers-color-scheme: dark)">
   <script src="/static/app.js?v={{ static_v }}" defer></script>
   <script>
     // Before the first frame: a swipe or a key left a direction for the view transition.
@@ -41,8 +41,8 @@
   {% block tabbar %}
   {# Phones: fixed at the bottom; from 760px, a row of links under the masthead. #}
   <nav class="tabbar" aria-label="Principal">
-    {% macro tab(href, label, current, icon) %}<a href="{{ href }}"{% if current %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true">{{ icon|safe }}</svg>{{ label }}</a>{% endmacro %}
-    {{ tab('/', 'Hoy', here == '/' or here.startswith('/e/'), '<circle cx="12" cy="14" r="4"/><path d="M3 18h18M12 4v3M5 9l2 2M19 9l-2 2"/>') }}
+    {% macro tab(href, label, current, icon) %}<a href="{{ href }}"{% if current %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true">{{ icon|safe }}</svg><span>{{ label }}</span></a>{% endmacro %}
+    {{ tab('/', 'Hoy', here == '/' or here.startswith('/e/'), '<path d="M4 5h13v13a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v9a2 2 0 0 1-4 0M7 9h7M7 13h7M7 17h4"/>') }}
     {{ tab('/archivo', 'Archivo', here == '/archivo', '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v5"/>') }}
     {{ tab('/buscar', 'Buscar', here == '/buscar', '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>') }}
     {{ tab('/guardado', 'Guardado', here == '/guardado', '<path d="M7 4h10v16l-5-4-5 4z"/>') }}

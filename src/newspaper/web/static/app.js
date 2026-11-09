@@ -61,7 +61,7 @@ document.addEventListener("submit", async (event) => {
   button.setAttribute("aria-pressed", String(value));
   if (new URL(form.action).searchParams.get("flag") === "read") {
     form.closest("li")?.classList.toggle("is-read", value);  // an original's title styling
-    // Unmarking the note takes back the "Leída · el sol subió" line the auto-mark showed.
+    // Unmarking the note takes back the "Leída · Esenciales" line the auto-mark showed.
     // Only the note's own toggle: an original's sits in the same article.
     const own = form.closest("article.note > .toggles");
     if (!value && own) own.parentElement.querySelector(".done")?.setAttribute("hidden", "");
@@ -95,7 +95,7 @@ if (readForm && "IntersectionObserver" in window && !copy) {
     if (!res || !res.ok || touched) return;
     button.setAttribute("aria-pressed", "true");
     const { inCore, coreRead, coreTotal } = note.dataset;
-    const text = inCore === "true" ? `Leída · el sol subió: ${+coreRead + 1} de ${coreTotal}` : "Leída";
+    const text = inCore === "true" ? `Leída · Esenciales: ${+coreRead + 1} de ${coreTotal}` : "Leída";
     const done = note.querySelector(".done");
     done.lastElementChild.textContent = text;
     done.hidden = false;
@@ -137,14 +137,23 @@ if (note) {
   }, { passive: true });
 }
 
-// Today: remember the edition (the sunrise plays once) and how far the sun rose. The inline
-// script in front.html reads these before the first paint.
-const rail = document.querySelector(".rail[data-day]");
-if (rail) {
-  try {
-    localStorage["alba:visto"] = rail.dataset.day;
-    localStorage["alba:" + rail.dataset.day] = rail.dataset.read;
-  } catch {}
+// The sky's keys (the sunrise seen, the sun's height per day) went with it.
+try {
+  for (const key of Object.keys(localStorage)) if (key.startsWith("alba:")) localStorage.removeItem(key);
+} catch {}
+
+// A photo that doesn't load (the copy without the PC holds only the front page's): its box goes,
+// caption and all, with no gap and no broken image. Capturing: an image's error doesn't bubble,
+// and one that failed before this script ran is caught by the sweep.
+const dropPhoto = (img) => {
+  const box = img.closest(".ph");
+  if (box) box.hidden = true;
+};
+addEventListener("error", (event) => {
+  if (event.target instanceof HTMLImageElement) dropPhoto(event.target);
+}, true);
+for (const img of document.querySelectorAll(".ph img")) {
+  if (img.complete && !img.naturalWidth) dropPhoto(img);
 }
 
 // Shortcuts, outside text fields: / search, g Today, ? the list; on a note, ←/→ or j/k walk
@@ -295,7 +304,7 @@ if (liveDay) {
     if (document.visibilityState !== "visible") return;
     const answer = await ask();
     if (!answer) return;
-    const today = document.querySelector(".rail");
+    const today = document.querySelector(".cabecera[data-day]");
     if (!answer.pc) {
       if (today) showSinPc(!copy);  // read out on a live Today; a copy's line is the page's
       return;
@@ -331,7 +340,7 @@ async function ask() {
 const sinPc = document.querySelector(".sin-pc");
 function showSinPc(announce) {
   if (!sinPc) return;
-  const day = document.body.dataset.copia || document.querySelector(".rail")?.dataset.day;
+  const day = document.body.dataset.copia || document.querySelector(".cabecera[data-day]")?.dataset.day;
   const today = new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local time
   const notice = sinPc.dataset.aviso;
   let text = "Sin el PC: las marcas esperan a que vuelva.";
@@ -377,38 +386,31 @@ function applyMarks(base) {
   caption.hidden = !own;
   (own || document.querySelector(".toggles"))?.after(caption);
   // Today's cards and Guardado's lines, read or not as the base says, with the check the server
-  // draws (read_mark): the copy is usually saved at the notice, before any reading. A read card
-  // loses "Sigue aquí", which doesn't move to the next one.
+  // draws (read_mark): the copy is usually saved at the notice, before any reading. A read card's
+  // «Sigue aquí» turns back into its section (or goes, under a section's heading); it doesn't
+  // move to the next one.
   for (const link of document.querySelectorAll('a[href^="/n/"]')) {
-    const card = link.closest(".big, .line");
+    const card = link.closest(".lead, .card, .first, .row, .line");
     if (!card) continue;
     const on = has("n", link.getAttribute("href").slice(3), "r");
     card.classList.toggle("done", on);
-    const title = card === link ? link.firstElementChild : link;  // a line's headline is its span
+    const title = card === link ? link.querySelector(".h") : link;  // a line's headline is a span
     if (!on) title.querySelectorAll(".check, .check + .sr-only").forEach((mark) => mark.remove());
     else if (!title.querySelector(".check")) {
       title.insertAdjacentHTML("afterbegin", '<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>');
     }
-    const kicker = card.querySelector(".k");
-    if (on && kicker?.firstChild?.textContent.startsWith("Sigue aquí")) kicker.firstChild.textContent = "";
+    const stamp = card.querySelector(".sello[data-seccion]");
+    if (on && stamp?.dataset.seccion) stamp.textContent = stamp.dataset.seccion;
+    else if (on) stamp?.remove();
   }
   const core = (document.body.dataset.nucleo || "").split(" ").filter(Boolean);
   const read = core.filter((id) => has("n", id, "r"));
-  const rail = document.querySelector(".rail");
-  if (rail && core.length) {  // the sun and the line above it
-    rail.dataset.read = read.length;
-    rail.style.setProperty("--sol", read.length / core.length);
-    try { localStorage["alba:" + rail.dataset.day] = read.length; } catch {}
-    const prog = document.querySelector(".prog");
-    prog.textContent = `Lo esencial: ${read.length} de ${core.length}.`;
-    if (read.length === core.length) {
-      const link = document.createElement("a");
-      link.href = `/fin/${rail.dataset.day}`;
-      link.textContent = "Pleno día.";
-      prog.append(" ", link);
-    } else {
-      prog.append(" El sol sube con cada una.");
-    }
+  const ear = document.querySelector(".ear.left");
+  if (ear && core.length) {  // the masthead's left ear: the count, and where it leads
+    ear.querySelector("b").textContent = `${read.length}/${core.length}`;
+    const next = core.find((id) => !has("n", id, "r"));
+    ear.href = next ? `/n/${next}` : `/fin/${ear.closest("[data-day]").dataset.day}`;
+    ear.querySelector(".sr-only").textContent = next ? " · seguir leyendo" : " · Pleno día";
   }
   const lead = document.querySelector(".noon-wrap .lead");
   if (lead && core.length) {  // Pleno día, saved either way: the base may have moved both ways

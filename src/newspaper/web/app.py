@@ -166,6 +166,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     templates.env.filters["since"] = since
     templates.env.globals["starts"] = starts
     templates.env.globals["cine"] = bool(config.cine.salas)  # the tab (#29)
+    # The dateline's place: the time zone's city («America/Santiago» → Santiago); none for UTC.
+    place = config.general.timezone
+    city = place.rsplit("/", 1)[1].replace("_", " ") if "/" in place else ""
+    templates.env.globals["city"] = city
 
     def db():
         with Session(engine) as s:
@@ -287,17 +291,23 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         if edition is None:
             return render(request, s, "empty.html", edition=None, notice_key=key)
         core = queries.reading_order(edition.notes)[0]
-        # Each band: its first note (the core's) big, the rest folded under "y N más".
+        # Each section: its first note (the core's) with a photo, then lines.
         sections = []
         for name, _ in queries.section_counts(s, edition.id):
             first, *rest = queries.section_notes(s, edition.id, name)
             sections.append((name, first, rest))
+        # The masthead's right ear (#29): today's shows, whatever the edition's day. The copy
+        # without the PC changes with the board, so it stays in step.
+        cine_today = None
+        if config.cine.salas:
+            board = queries.cinema_board(s, config.cine.salas, local_today(config))
+            cine_today = sum(len(venue.shows) for venue in board)
         response = render(
             request, s, "front.html", edition=edition, front=queries.front_page(s, edition.id),
             sections=sections, next_core=next((n for n in core if not n.is_read), None),
             core_read=sum(n.is_read for n in core), core_total=len(core),
             core_minutes=sum(n.read_minutes for n in core), notice_key=key,
-            core_ids=[n.id for n in core],
+            core_ids=[n.id for n in core], cine_today=cine_today,
         )  # fmt: skip
         return opened(response, request, edition)
 
@@ -571,8 +581,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
                 "short_name": name,
                 "start_url": "/",
                 "display": "standalone",
-                "background_color": "#F2F4F5",  # --mist
-                "theme_color": "#F2F4F5",
+                "background_color": "#F3EEE3",  # --paper
+                "theme_color": "#F3EEE3",
                 # The glyph sits inside the maskable safe zone: one image serves both purposes.
                 "icons": [icon(192, "any"), icon(512, "any"), icon(512, "maskable")],
             },

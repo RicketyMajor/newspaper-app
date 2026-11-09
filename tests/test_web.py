@@ -32,27 +32,86 @@ def test_front_page_shows_lead_note_and_sections(client, seeded):
     assert "sábado 10 de octubre de 2026" in page
 
 
-def test_today_is_one_sky_with_the_core_and_the_sun(client, engine, seeded):
+def test_today_has_the_name_between_the_core_and_the_minutes(client, engine, seeded):
     page = client.get("/").text
-    assert "Lo esencial: 0 de 2" in page  # seeded: 1 front + Mundo's first
-    assert "2&nbsp;notas esenciales · 3&nbsp;min" in page
-    assert 'class="rail"' in page and "--sol: 0.0" in page
-    assert "Sigue aquí" in page  # the first unread core note is big
+    assert "<h1>Newspaper</h1>" in page  # edition_name, in the gothic nameplate
+    left = page.split('class="ear left"')[1].split("</a>")[0]
+    assert "Esenciales" in left and "<b>0/2</b>" in left  # seeded: 1 front + Mundo's first
+    assert "aria-hidden" not in left  # the name says what the ear shows (WCAG 2.5.3)
+    # It leads to where the reading goes on, and its name says so (2.4.4).
+    assert f'href="/n/{seeded["front"]}"' in left and "· seguir leyendo</span>" in left
+    right = page.split('class="ear right"')[1].split("</p>")[0]
+    assert "Lectura" in right and "<b>3</b>&nbsp;min" in right  # without [cine]: the minutes
+    assert "Sigue aquí" in page  # the first unread core note says so
+    assert "sábado 10 de octubre de 2026" in page
     with Session(engine) as s, s.begin():
         s.get(Note, seeded["front"]).is_read = True
     page = client.get("/").text
-    assert "Lo esencial: 1 de 2" in page and "--sol: 0.5" in page
+    assert "<b>1/2</b>" in page
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["world"]).is_read = True
+    left = client.get("/").text.split('class="ear left"')[1].split("</a>")[0]
+    assert 'href="/fin/2026-10-10"' in left and "<b>2/2</b>" in left  # all read: Pleno día
+    assert "· Pleno día</span>" in left
 
 
-def test_section_bands_fold_the_rest_of_the_section(client, engine, seeded):
+def test_the_right_ear_counts_todays_shows_with_cine(cine_client, engine, config, seeded):
+    today = local_today(config)
+    with Session(engine) as s, s.begin():
+        s.add_all(
+            [
+                Screening(venue="normandie", day=today, time="15:00", title="Nine"),
+                Screening(venue="ceina", day=today, time=None, title="VÍNCULO(S)"),
+                Screening(venue="alameda", day=today + timedelta(days=1), time="16:30", title="X"),
+            ]
+        )
+    page = cine_client.get("/").text
+    right = page.split('class="ear right"')[1].split("</a>")[0]
+    assert 'href="/cine"' in right and "Cine hoy" in right and "<b>2</b> funciones" in right
+    with Session(engine) as s, s.begin():
+        s.query(Screening).filter(Screening.day == today).delete()
+    page = cine_client.get("/e/2026-10-10").text  # an older edition's page says today's too
+    assert "sin funciones" in page.split('class="ear right"')[1].split("</a>")[0]
+
+
+def test_the_sky_is_gone(client, seeded):
+    page = client.get("/").text
+    assert 'class="rail"' not in page and "amanecer" not in page and "alba:" not in page
+    css = client.get("/static/style.css").text
+    for gone in ("--sun", "--r0", "--tint", "sun-climbs", "#8a2c1d", "#8A2C1D"):
+        assert gone not in css, gone
+    assert "/static/fonts/unifraktur.woff2" in css
+
+
+def test_kickers_are_stamps_and_photos_have_their_credit(client, engine, config, seeded):
+    give_photo(engine, config, seeded["front"])  # credit: CIPER
+    page = client.get("/").text
+    assert '<p class="sello" data-seccion="Chile">Sigue aquí · ' in page
+    img = f'<img src="/img/{seeded["front"]}" alt="" loading="lazy" decoding="async">'
+    assert img in page and "Foto: CIPER" in page
+    assert f'src="/img/{seeded["world"]}"' not in page  # Mundo's first has no photo: no box
+    assert page.count("<figure") == 1 and page.count("Foto:") == 1
+
+
+def test_a_note_without_photo_has_no_img_nor_caption(client, seeded):
+    page = client.get("/").text
+    assert "<img" not in page and "<figure" not in page and "Foto:" not in page
+
+
+def test_section_lines_fold_past_four(client, engine, seeded):
     with Session(engine) as s, s.begin():
         edition = s.get(Note, seeded["world"]).edition
-        edition.notes.append(
-            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
-                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
-        )  # fmt: skip
+        for n in range(5):
+            edition.notes.append(
+                Note(section="Mundo", rank=5 + n, is_front=False, headline=f"Otra de Mundo {n}",
+                     dek="", body="b", single_source=True, excerpt_only=False, drafted=True,
+                     read_minutes=1)
+            )  # fmt: skip
     page = client.get("/").text
-    assert "<details" in page and "y 1 más en Mundo" in page and "Otra de Mundo" in page
+    assert '<h2 class="sec"' in page and "6&nbsp;notas" in page
+    fold = page.index("<details")
+    assert page.index("Otra de Mundo 3") < fold < page.index("Otra de Mundo 4")
+    assert "y 1 más en Mundo" in page and page.count('<a class="row') == 5
 
 
 def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seeded):
@@ -416,7 +475,7 @@ def test_manifest_lets_chrome_install_the_paper(client):
     manifest = response.json()
     assert manifest["name"] == manifest["short_name"] == "Newspaper"
     assert (manifest["start_url"], manifest["display"]) == ("/", "standalone")
-    assert (manifest["background_color"], manifest["theme_color"]) == ("#F2F4F5", "#F2F4F5")
+    assert (manifest["background_color"], manifest["theme_color"]) == ("#F3EEE3", "#F3EEE3")
     sizes = {(icon["sizes"], icon["purpose"]) for icon in manifest["icons"]}
     assert sizes == {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")}
     for icon in manifest["icons"]:

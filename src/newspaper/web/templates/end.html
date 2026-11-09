@@ -1,16 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Pleno día · {{ paper }}{% endblock %}
-{% block body_class %}noon{% endblock %}
 {% block top %}{% endblock %}
 {% block tabbar %}{% endblock %}
 {% block content %}
 <div class="noon-wrap">
-  <svg viewBox="0 0 200 120" aria-hidden="true">
-    <circle cx="100" cy="52" r="46" fill="var(--sun)" fill-opacity=".16"/>
-    <circle class="noon-sun" cx="100" cy="52" r="30" fill="var(--sun)"/>
-    <path d="M4 118 A96 70 0 0 1 196 118" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 5"/>
-    <line x1="0" y1="118" x2="200" y2="118" stroke="currentColor"/>
-  </svg>
+  {# The paper's name and its day, as at the top of the front page: the edition closes here. #}
+  <p class="fin-name" aria-hidden="true">{{ paper }}</p>
+  <p class="fin-date">{{ edition.edition_date|long_date|capitalize }}</p>
   <h1>Pleno día.</h1>
   {% if core_left %}
   <p class="lead">Te faltan {{ core_left }} de las {{ core_total }}&nbsp;notas esenciales.</p>
