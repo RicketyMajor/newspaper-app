@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import outlets, original, toggles with context %}
+{% from "_macros.html" import outlets, original, toggles, photo, icon with context %}
 {% block title %}{{ note.headline|replace('*', '') }} · {{ paper }}{% endblock %}
 {% block head %}
 {% if prev_url %}<link rel="prev" href="{{ prev_url }}">{% endif %}
@@ -8,7 +8,7 @@
 {% block top %}
 <header class="bar">
   <a href="/e/{{ edition.edition_date }}"><span class="back" aria-hidden="true"></span>Hoy</a>
-  <span class="pos"><i aria-hidden="true"></i>{{ position_label }}</span>
+  <span class="pos">{% if in_core %}Esencial {% endif %}{{ position_label }}</span>
   <span class="readline" aria-hidden="true"></span>
 </header>
 {% endblock %}
@@ -16,11 +16,11 @@
 {% block content %}
 {% set names = note.articles|map(attribute='source_name')|unique|list %}
 <article class="note" data-in-core="{{ 'true' if in_core else 'false' }}" data-core-read="{{ core_read }}" data-core-total="{{ core_total }}">
-  <header class="head" style="--tint: var(--r{{ tint }})">
-    <p class="kick">{{ note.section }} · {{ outlets(note) }}</p>
+  <header class="head">
+    <p class="kick"><span class="sello">{{ note.section }}</span> {{ outlets(note) }}</p>
     <h1 style="view-transition-name: h-{{ note.id }}">{{ note.headline|inline|safe }}</h1>
     {% if note.dek %}<p class="dek">{{ note.dek|inline|safe }}</p>{% endif %}
-    <p class="meta">{{ note.read_minutes }}&nbsp;min de lectura · {{ names|length }}&nbsp;{{ 'medio' if names|length == 1 else 'medios' }}{% if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %}</p>
+    <p class="meta">{{ note.read_minutes }}&nbsp;min de lectura · {{ names|length }}&nbsp;{{ 'medio' if names|length == 1 else 'medios' }}{% if note.is_favorite %} · {{ icon('star') }}<span class="sr-only">Favorita</span>{% endif %}</p>
     {% if note.single_source or note.excerpt_only or not note.drafted or note.interest %}
     <ul class="caveats">
       {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
@@ -30,6 +30,7 @@
     </ul>
     {% endif %}
   </header>
+  {{ photo(note) }}
   <div class="body">{{ note.body|markdown|safe }}</div>
   {% if note.differences %}
   <aside class="diff" id="difieren" aria-labelledby="difieren-t">
@@ -51,7 +52,7 @@
     </ol>
   </section>
   <div class="end">
-    <p class="done" hidden><i aria-hidden="true"></i><span></span></p>
+    <p class="done" hidden>{{ icon('check') }}<span></span></p>
     {% if next_note %}
     <a class="next" rel="next" href="{{ next_url }}">
       <span class="l">Siguiente · {{ next_label }} · {{ next_note.section }}</span>
@@ -67,6 +68,8 @@
     {% else %}
     <p class="next"><span class="l">Fin de la edición.</span> <a href="/e/{{ edition.edition_date }}">Volver a Hoy</a></p>
     {% endif %}
+    {# The way back without ← / k (they can be off) or a swipe. #}
+    {% if prev_url %}<a class="prev" rel="prev" href="{{ prev_url }}"><span class="back" aria-hidden="true"></span>Anterior</a>{% endif %}
   </div>
   <h2 class="sr-only">Esta nota</h2>
   {{ toggles('n', note) }}

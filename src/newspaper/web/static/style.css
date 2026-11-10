@@ -132,6 +132,7 @@ a { color: inherit; text-underline-offset: 0.16em; text-decoration-thickness: 1p
   text-align: center;
 }
 .banner a { font-weight: 700; }
+.banner:empty { padding: 0; border: 0; }  /* the live region waits, empty but in the page */
 
 /* The nameplate of the other pages: the gothic name over a double rule. */
 .top {
@@ -237,7 +238,11 @@ a.ear:hover { background: var(--panel); }
 .tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); }
 .tag.warn { padding: 0 4px; border: 1px solid var(--ink); color: var(--ink); }
 .outlets.multi { color: var(--ink); font-weight: 700; }
-.check { margin-right: 0.4em; font: 700 0.7em/1 var(--sans); }
+/* Drawn ✓ and ★ (icon() in _macros.html) */
+.ic { flex: none; width: 1em; height: 1em; vertical-align: -0.1em; }
+.ic.check { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ic.star { fill: currentColor; }
+.check { width: 0.75em; height: 0.75em; margin-right: 0.3em; vertical-align: 0; }
 .meta { font: 400 12px/1.4 var(--sans); color: var(--grey); }
 
 /* The kicker: a stamp, paper letters on an ink box. */
@@ -343,7 +348,7 @@ details summary {
 }
 details summary::-webkit-details-marker { display: none; }
 /* Drawn chevrons, not glyphs: they keep their weight in every font. */
-details summary::after, .bar .back {
+details summary::after, .back {
   content: "";
   width: 7px;
   height: 7px;
@@ -354,7 +359,7 @@ details summary::after, .bar .back {
   transition: rotate 0.2s, translate 0.2s;
 }
 details[open] summary::after { rotate: 225deg; translate: 0 2px; }
-.bar .back { margin-right: 2px; rotate: 135deg; translate: 0; }
+.back { margin-right: 2px; rotate: 135deg; translate: 0; }
 
 /* Lists of notes elsewhere (Guardado): a line per note. */
 .line {
@@ -405,15 +410,21 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 }
 @keyframes read { to { transform: scaleX(1); } }
 
-.note .head { padding: 18px var(--gutter) 14px; }
-.note .kick { font: 600 12px/1.4 var(--sans); }
-.note h1 { margin: 10px 0; font-size: 30px; line-height: 1.06; }
-.note .head .dek { font-style: italic; font-size: 18px; line-height: 1.4; }
-.note .head .meta { margin-top: 12px; }
-.caveats { margin: 12px 0 0; padding: 0; list-style: none; color: var(--grey); font: 400 12.5px/1.5 var(--sans); }
+/* The head: the stamp and the outlets, a big headline, the dek in italics, the minutes between
+   rules; then the photo across, its caption, and the body opening on a drop cap. */
+.note .head { padding: 16px var(--gutter) 0; }
+.note .kick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 400 12px/1.3 var(--sans); color: var(--grey); }
+.note h1 { margin: 10px 0 8px; font-size: 30px; line-height: 1.04; letter-spacing: -0.01em; }
+.note .head .dek { margin-bottom: 10px; font-style: italic; font-size: 18px; line-height: 1.35; }
+.note .head .meta { padding: 5px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.caveats { margin: 10px 0 0; padding: 0; list-style: none; color: var(--grey); font: 400 12.5px/1.5 var(--sans); }
 .caveats li + li { margin-top: 4px; }
 .caveats strong { color: var(--ink); font-weight: 600; }
-.note .body { max-width: 34em; padding: 6px var(--gutter) 0; font-size: 18px; line-height: 1.55; }
+.note > .ph { margin-top: 14px; }
+.note > .ph img { border-width: 1px 0; }
+.note > .ph .cap { padding: 0 var(--gutter); }
+.note .body { max-width: 34em; padding: 16px var(--gutter) 0; font-size: 18px; line-height: 1.55; }
+.note .body > p:first-child::first-letter { float: left; margin: 0.06em 0.08em 0 0; font-size: 3.15em; font-weight: 700; line-height: 0.8; }
 .note .body p, .note .body ul, .note .body ol { margin: 0 0 1em; }
 .note .body h2, .note .body h3 { margin: 1.2em 0 0.4em; font-size: 21px; }
 .note .diff { margin: 8px var(--gutter) 18px; padding: 16px; border-top: 3px solid var(--ink); background: var(--panel); }
@@ -433,12 +444,13 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 .note .end { margin: 18px var(--gutter) 0; padding: 14px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
 .note .done { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font: 700 12.5px/1.3 var(--sans); }
 .note .done[hidden] { display: none; }
-.note .done i { width: 10px; height: 10px; background: var(--ink); }
+.note .done .ic { width: 14px; height: 14px; }
 .next { display: grid; gap: 6px; text-decoration: none; }
 .next .l { font: 700 11.5px/1.3 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
 .next .h { font-size: 21px; font-weight: 700; line-height: 1.15; }
 .next .hint { font: 400 11.5px/1.3 var(--sans); color: var(--grey); }
 p.next a { font: 600 13px/1 var(--sans); }
+.end .prev { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: 10px; font: 600 13px/1 var(--sans); text-decoration: none; }
 
 /* Reading toggles: boxes that answer when pressed */
 .toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -456,7 +468,8 @@ p.next a { font: 600 13px/1 var(--sans); }
   cursor: pointer;
 }
 .toggles button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-.toggles button[aria-pressed="false"] .glyph { display: none; }
+.toggles button .ic { width: 13px; height: 13px; margin-right: 6px; }
+.toggles button[aria-pressed="false"] .ic { display: none; }
 .note > .toggles { margin: 14px var(--gutter) 30px; }
 .note > .toggles form { flex: 1; }
 .note > .toggles button { width: 100%; justify-content: center; }
@@ -485,7 +498,7 @@ p.next a { font: 600 13px/1 var(--sans); }
 .days .d { font-size: 18px; line-height: 1.25; }
 .days .m { grid-column: 1; font: 400 12px/1.3 var(--sans); color: var(--grey); }
 .days .mini { position: relative; grid-row: 1 / 3; grid-column: 2; width: 64px; height: 8px; border: 1px solid var(--ink); }
-.days .mini i { position: absolute; inset: 0 auto 0 0; width: calc(var(--sol) * 100%); background: var(--ink); }
+.days .mini i { position: absolute; inset: 0 auto 0 0; width: calc(var(--hecho) * 100%); background: var(--ink); }
 /* Cine (#29): today's and tomorrow's showtimes, one block per cinema */
 .cine-day { padding: 0 var(--gutter) 16px; }
 .cine-day h2 { margin: 20px 0 4px; font-size: 26px; line-height: 1.15; }
@@ -554,8 +567,39 @@ p.next a { font: 600 13px/1 var(--sans); }
 #atajos dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 0 16px; }
 #atajos dd { margin: 0; }
 #atajos button { min-height: 44px; padding: 0 18px; border: 1px solid var(--ink); border-radius: 2px; background: transparent; color: inherit; font: 600 13px/1 var(--sans); cursor: pointer; }
+#atajos .atajos-on { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-bottom: 12px; cursor: pointer; }
+#atajos .atajos-on input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 kbd { padding: 1px 6px; border: 1px solid var(--rule); border-radius: 2px; font: 600 0.9em var(--sans); }
+.atajos-abrir { min-height: 24px; padding: 2px; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
 @media not (hover: hover) { .keys-hint { display: none; } }
+
+/* «Solo sin leer» (Today): what's read steps out, and a section or fold with nothing left goes
+   with it. html.oculta-leidas is set before the first paint (front.html). */
+.filtro { display: flex; justify-content: flex-end; padding: 4px var(--gutter) 0; }
+.solo-sin-leer {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 600 13px/1 var(--sans);
+  cursor: pointer;
+}
+.solo-sin-leer::before { content: ""; width: 14px; height: 14px; border: 1.5px solid currentColor; }
+html.oculta-leidas .solo-sin-leer::before { background: currentColor; box-shadow: inset 0 0 0 2px var(--paper); }
+/* High contrast drops backgrounds: the filled square keeps its fill in the system colors. */
+@media (forced-colors: active) {
+  html.oculta-leidas .solo-sin-leer::before { forced-color-adjust: none; background: CanvasText; border-color: CanvasText; box-shadow: inset 0 0 0 2px Canvas; }
+}
+html.oculta-leidas body.hoy :is(article.lead, .card, .first, .row).done,
+html.oculta-leidas .portada:not(:has(:is(article.lead, .card):not(.done))),
+html.oculta-leidas .seccion:not(:has(:is(.first, .row):not(.done))),
+html.oculta-leidas .seccion details:not(:has(.row:not(.done))) { display: none; }
+.todo-leido { display: none; padding: 24px var(--gutter); color: var(--grey); font-style: italic; }
+html.oculta-leidas main:not(:has(:is(article.lead, .card, .first, .row):not(.done))) .todo-leido { display: block; }
 
 /* Motion: all of it goes away with prefers-reduced-motion. */
 @view-transition { navigation: auto; }
@@ -580,8 +624,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--rule); border-radius: 2px; font:
   /* Toggles answer the press; the glyph pops in when it turns on. */
   .toggles button, .filter a, .noon-wrap .cta a, .aviso button { transition: transform 0.12s; }
   .toggles button:not([aria-disabled="true"]):active, .filter a:active, .noon-wrap .cta a:active, .aviso button:active { transform: scale(0.96); }
-  .toggles button[aria-pressed="true"] .glyph { display: inline-block; animation: 0.25s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
-  .note .done:not([hidden]) i { animation: 0.6s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
+  .toggles button[aria-pressed="true"] .ic { animation: 0.25s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
+  .note .done:not([hidden]) .ic { animation: 0.6s cubic-bezier(0.22, 1, 0.36, 1) both pop; }
 }
 @keyframes slide-out-left { to { translate: -30% 0; opacity: 0; } }
 @keyframes slide-in-right { from { translate: 30% 0; opacity: 0; } }
@@ -654,6 +698,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--rule); border-radius: 2px; font:
   .lead .dek { margin-top: 0; font-size: 19px; line-height: 1.4; }
   .cols { columns: 4 170px; column-gap: 33px; }
   .card h3 { font-size: 19px; }
+  .note .head { padding-top: 24px; }
+  .note h1 { font-size: 40px; }
+  .note .head .dek { font-size: 20px; }
 }
 /* A wide desktop: the sections side by side, ruled like the front page's columns. */
 @media (min-width: 1000px) {

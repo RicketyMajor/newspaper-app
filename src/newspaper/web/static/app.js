@@ -15,6 +15,23 @@ if (matchMedia("(display-mode: standalone)").matches) {
   navigator.storage?.persist?.().then((kept) => console.info("Newspaper: almacenamiento persistente:", kept), () => {});
 }
 
+// localStorage, or nothing: a private window or blocked site data may refuse it.
+function stored(key) {
+  try { return localStorage[key]; } catch { return undefined; }
+}
+function store(key, value) {
+  try { localStorage[key] = value; } catch {}
+}
+
+// "La edición de hoy está lista", written into the status region the page already has: one
+// that appears already filled isn't read out.
+function showReady() {
+  const ready = document.querySelector(".banner.ready");
+  if (!ready || ready.firstChild) return;
+  const link = Object.assign(document.createElement("a"), { href: "/", textContent: "Abrirla" });
+  ready.append("La edición de hoy está lista. ", link);
+}
+
 // Poll until today's edition is ready (it may be starting in the background); announce it.
 const shown = document.body.dataset.today;
 if (shown !== "ready") {
@@ -23,7 +40,7 @@ if (shown !== "ready") {
     if (!res || !res.ok) return;
     const { today } = await res.json();
     if (today === "ready") {
-      document.querySelector(".banner.ready").hidden = false;
+      showReady();
       clearInterval(timer);
     }
   }, 30000);
@@ -76,8 +93,9 @@ document.addEventListener("click", (event) => {
   item?.querySelector('form[action$="flag=read"] button')?.setAttribute("aria-pressed", "true");
 });
 
-// A note counts as read once its sources come into view, after the reader has scrolled.
-// Opening it doesn't. Touching "Leída" by hand wins for the rest of the visit.
+// A note counts as read once its sources come into view, after the reader has scrolled; a note
+// that fits on the screen, as soon as they're in view, since there's nothing to scroll. Opening
+// a long one doesn't. Touching "Leída" by hand wins for the rest of the visit.
 const note = document.querySelector("article.note");
 const readForm = note?.querySelector(':scope > .toggles form[action$="flag=read"]');
 if (readForm && "IntersectionObserver" in window && !copy) {
@@ -101,8 +119,9 @@ if (readForm && "IntersectionObserver" in window && !copy) {
     done.hidden = false;
     live.textContent = text;
   }, { threshold: 0.1 });
-  // ponytail: waits for the first scroll, so a note that fits on one screen needs the button.
-  addEventListener("scroll", () => mark.observe(document.getElementById("fuentes")), { once: true });
+  const watch = () => mark.observe(document.getElementById("fuentes"));
+  if (document.documentElement.scrollHeight <= innerHeight) watch();
+  else addEventListener("scroll", watch, { once: true });
 }
 
 // Walking the reading path: swipe or keys go to the previous or next note. The direction rides
@@ -142,6 +161,19 @@ try {
   for (const key of Object.keys(localStorage)) if (key.startsWith("alba:")) localStorage.removeItem(key);
 } catch {}
 
+// "Solo sin leer" on Today: hides the notes already read (html.oculta-leidas, which the
+// inline script in front.html sets before the first paint), remembered on this device.
+const unread = document.querySelector("button.solo-sin-leer");
+if (unread) {
+  const root = document.documentElement;
+  unread.setAttribute("aria-pressed", String(root.classList.contains("oculta-leidas")));
+  unread.addEventListener("click", () => {
+    const on = root.classList.toggle("oculta-leidas");
+    unread.setAttribute("aria-pressed", String(on));
+    store("solo-sin-leer", on ? "on" : "off");
+  });
+}
+
 // A photo that doesn't load (the copy without the PC holds only the front page's): its box goes,
 // caption and all, with no gap and no broken image. Capturing: an image's error doesn't bubble,
 // and one that failed before this script ran is caught by the sweep.
@@ -157,9 +189,23 @@ for (const img of document.querySelectorAll(".ph img")) {
 }
 
 // Shortcuts, outside text fields: / search, g Today, ? the list; on a note, ←/→ or j/k walk
-// and m, f, s press Leída, Favorita and Guardar.
+// and m, f, s press Leída, Favorita and Guardar. The list's checkbox turns them all off on this
+// device (WCAG 2.1.4); its button in the colophon still opens the list. The page keeps the
+// choice itself: with storage refused it still holds for this page, just not the next one.
+const keys = document.getElementById("atajos-on");
+let shortcutsOff = stored("atajos") === "off";
+if (keys) {
+  keys.checked = !shortcutsOff;
+  keys.addEventListener("change", () => {
+    shortcutsOff = !keys.checked;
+    store("atajos", shortcutsOff ? "off" : "on");
+  });
+}
+document.querySelector(".atajos-abrir")?.addEventListener("click", () => {
+  document.getElementById("atajos").showModal();
+});
 document.addEventListener("keydown", (event) => {
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || shortcutsOff) return;
   if (event.target.closest("input, textarea, select, [contenteditable]")) return;
   if (document.querySelector("dialog[open]")) return;
   const flags = { m: "read", f: "favorite", s: "saved" };
@@ -314,7 +360,7 @@ if (liveDay) {
     // briefly says yesterday or null.
     if (!answer.servidor || answer.servidor <= liveDay) return;
     if (today && !copy) location.replace("/");  // a live front page: Today itself
-    else document.querySelector(".banner.ready").hidden = false;
+    else showReady();
   });
 }
 
@@ -396,12 +442,17 @@ function applyMarks(base) {
     card.classList.toggle("done", on);
     const title = card === link ? link.querySelector(".h") : link;  // a line's headline is a span
     if (!on) title.querySelectorAll(".check, .check + .sr-only").forEach((mark) => mark.remove());
-    else if (!title.querySelector(".check")) {
-      title.insertAdjacentHTML("afterbegin", '<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>');
+    else if (!title.querySelector(".check")) {  // read_mark's check (_macros.html)
+      title.insertAdjacentHTML("afterbegin", '<svg class="ic check" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.8 8.6l3.4 3.2 7-7.4"/></svg><span class="sr-only">Leída: </span>');
     }
     const stamp = card.querySelector(".sello[data-seccion]");
-    if (on && stamp?.dataset.seccion) stamp.textContent = stamp.dataset.seccion;
-    else if (on) stamp?.remove();
+    if (on && stamp) {
+      // The outlets the stamp named go back to the meta line, as on any card read.
+      const names = stamp.querySelector(".outlets");
+      if (names) card.querySelector(".meta .sigue")?.replaceWith(names, " · ");
+      if (stamp.dataset.seccion) stamp.textContent = stamp.dataset.seccion;
+      else stamp.remove();
+    }
   }
   const core = (document.body.dataset.nucleo || "").split(" ").filter(Boolean);
   const read = core.filter((id) => has("n", id, "r"));

@@ -29,7 +29,9 @@
 <body class="{% block body_class %}{% endblock %}" data-today="{{ today_status or '' }}"{% if live_day %} data-live="{{ live_day }}"{% endif %}{% if core_ids %} data-nucleo="{{ core_ids|join(' ') }}"{% endif %}>
   <a class="skip" href="#main">Saltar al contenido</a>
   {% if banner %}<p class="banner" role="status">{{ banner }}</p>{% endif %}
-  <p class="banner ready" role="status" hidden>La edición de hoy está lista. <a href="/">Abrirla</a></p>
+  {# Empty from the start: a status region that appears already filled isn't read out. app.js
+     writes «La edición de hoy está lista» into it. #}
+  <p class="banner ready" role="status"></p>
   <p id="live" class="sr-only" aria-live="polite"></p>
   {% set here = request.url.path %}
   {% block top %}
@@ -50,7 +52,8 @@
   </nav>
   {% endblock %}
   <main id="main">{% block content %}{% endblock %}</main>
-  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.<span class="keys-hint"> Pulsa <kbd>?</kbd> para ver los atajos de teclado.</span></footer>
+  {# The button reaches the list even with the shortcuts off (then ? does nothing). #}
+  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.<span class="keys-hint"> <button type="button" class="atajos-abrir">Atajos de teclado</button></span></footer>
   <dialog id="atajos" aria-labelledby="atajos-t">
     <h2 id="atajos-t">Atajos de teclado</h2>
     <dl>
@@ -59,7 +62,10 @@
       <dt><kbd>→</kbd> o <kbd>j</kbd></dt><dd>Nota siguiente</dd>
       <dt><kbd>←</kbd> o <kbd>k</kbd></dt><dd>Nota anterior</dd>
       <dt><kbd>m</kbd> · <kbd>f</kbd> · <kbd>s</kbd></dt><dd>Leída · Favorita · Guardar</dd>
+      <dt><kbd>?</kbd></dt><dd>Esta lista</dd>
     </dl>
+    {# WCAG 2.1.4: one-key shortcuts can be turned off (a voice command can fire them). #}
+    <label class="atajos-on"><input type="checkbox" id="atajos-on" checked> Usar estos atajos</label>
     <form method="dialog"><button>Cerrar</button></form>
   </dialog>
 </body>

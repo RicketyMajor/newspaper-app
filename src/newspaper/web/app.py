@@ -350,16 +350,11 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             next_url = f"/fin/{found.edition.edition_date}"
         else:
             next_url = f"/n/{next_note.id}" if next_note else None
-        # The header takes its band's color: the front page is the first band of the sky, and
-        # the bands spread over the six stops of the ramp (--r0…--r5 in style.css).
-        sections = [name for name, _ in queries.section_counts(s, found.edition.id)]
-        band = 0 if found.is_front else sections.index(found.section) + 1
         response = render(
             request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
             prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
             next_note=next_note, next_label=label(i + 1),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
-            tint=int(band * 5 / max(1, len(sections)) + 0.5),  # round half up, not to even
             core_ids=[n.id for n in core],
         )  # fmt: skip
         # Its edition too: a note reached from search or a bookmark opened it, never Today.
@@ -457,8 +452,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     def archive(request: Request, s: DB):
         editions = queries.list_editions(s)
         cores = {e.id: queries.reading_order(e.notes)[0] for e in editions}
-        suns = {e: (sum(n.is_read for n in core), len(core)) for e, core in cores.items()}
-        return render(request, s, "archive.html", editions=editions, suns=suns)
+        read = {e: (sum(n.is_read for n in core), len(core)) for e, core in cores.items()}
+        return render(request, s, "archive.html", editions=editions, cores=read)
 
     @app.get("/buscar", response_class=HTMLResponse)
     def search(request: Request, s: DB, q: str = ""):

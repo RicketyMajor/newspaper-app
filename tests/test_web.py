@@ -93,6 +93,18 @@ def test_kickers_are_stamps_and_photos_have_their_credit(client, engine, config,
     assert page.count("<figure") == 1 and page.count("Foto:") == 1
 
 
+def test_under_sigue_aqui_the_meta_keeps_a_place_for_the_outlets(client, engine, seeded):
+    # The stamp names the outlets; a copy without the PC that finds the note read moves them
+    # back into the meta line, in place of this span (app.js applyMarks).
+    page = client.get("/").text
+    assert '<p class="meta"><span class="sigue">Chile · </span>2&nbsp;min' in page
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).is_read = True
+    page = client.get("/").text  # Mundo's first goes on, under its section's heading
+    assert '<p class="meta"><span class="sigue"></span>1&nbsp;min' in page
+    assert '<p class="meta"><span class="outlets multi">CIPER y Cooperativa</span> · 2' in page
+
+
 def test_a_note_without_photo_has_no_img_nor_caption(client, seeded):
     page = client.get("/").text
     assert "<img" not in page and "<figure" not in page and "Foto:" not in page
@@ -123,14 +135,57 @@ def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seed
     assert "Fuente única:" in note  # explained where it matters
 
 
+def test_the_note_has_its_photo_across_with_the_credit(client, engine, config, seeded):
+    give_photo(engine, config, seeded["front"])  # credit: CIPER
+    page = client.get(f"/n/{seeded['front']}").text
+    figure = page[page.index('<figure class="ph">') : page.index("</figure>")]
+    assert f'<img src="/img/{seeded["front"]}" alt="" loading="lazy" decoding="async">' in figure
+    assert '<figcaption class="cap">Foto: CIPER</figcaption>' in figure
+    assert '<span class="sello">Chile</span>' in page  # the stamp, then the outlets
+    assert "--tint" not in page and "var(--r" not in page  # no band tint any more
+    without = client.get(f"/n/{seeded['world']}").text
+    assert "<figure" not in without and "Foto:" not in without
+
+
+def test_marks_are_drawn_and_the_words_stay(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["front"])
+        note.is_read = note.is_favorite = True
+    page = client.get(f"/n/{seeded['front']}").text
+    toggles = page[page.rindex('<div class="toggles">') :]
+    buttons = re.findall(r"<button aria-pressed=\"\w+\">(.*?)</button>", toggles, re.S)
+    assert [re.sub(r"<svg.*?</svg>", "", b) for b in buttons] == ["Leída", "Favorita", "Guardar"]
+    assert all('aria-hidden="true"' in b for b in buttons)
+    for html in (page, client.get("/").text):
+        assert "★" not in html and "✓" not in html
+    front = client.get("/").text
+    assert '<svg class="ic check"' in front and "Leída: " in front  # read cards
+    assert '<svg class="ic star"' in front and "Favorita" in front
+
+
+def test_shortcuts_can_be_switched_off_and_the_unread_filter_is_there(client, seeded):
+    page = client.get("/").text
+    assert '<input type="checkbox" id="atajos-on" checked>' in page  # WCAG 2.1.4
+    assert 'class="atajos-abrir"' in page  # the list opens without the ? key too
+    button = '<button type="button" aria-pressed="false" class="solo-sin-leer">'
+    assert f"{button}Solo sin leer</button>" in page
+    assert "solo-sin-leer" not in client.get("/guardado").text  # Today only
+    # The live region is there from the start, empty, so the news that today's edition is ready
+    # is read out when app.js writes it.
+    assert '<p class="banner ready" role="status"></p>' in page
+
+
 def test_note_page_has_one_h1_and_walks_the_reading_path_to_noon(client, seeded):
     first = client.get(f"/n/{seeded['front']}").text
     assert first.count("<h1") == 1
-    assert "1 de 2" in first and f'rel="next" href="/n/{seeded["world"]}"' in first
+    assert "Esencial 1 de 2" in first and f'rel="next" href="/n/{seeded["world"]}"' in first
     last = client.get(f"/n/{seeded['world']}").text
     assert "2 de 2" in last and 'rel="next" href="/fin/2026-10-10"' in last
     assert f'rel="prev" href="/n/{seeded["front"]}"' in last
     assert "Pleno día" in last
+    # Back one note without ← or k (shortcuts may be off) nor a swipe (WCAG 2.1.1).
+    assert f'<a class="prev" rel="prev" href="/n/{seeded["front"]}">' in last
+    assert 'class="prev"' not in first  # the first note has none
 
 
 def test_notes_after_the_core_count_as_more_and_end_the_edition(client, engine, seeded):

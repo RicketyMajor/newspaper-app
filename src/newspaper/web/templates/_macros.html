@@ -10,8 +10,16 @@
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
 {%- endmacro %}
 
+{# ✓ and ★ drawn, not typed: the same weight in every font, and nothing for a screen reader to
+   spell out. The words beside them say what they mean. app.js draws the same check. #}
+{% macro icon(name) -%}
+<svg class="ic {{ name }}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+{%- if name == 'star' %}<path d="M8 1.6l1.95 4 4.4.62-3.2 3.08.77 4.37L8 11.6l-3.92 2.07.77-4.37-3.2-3.08 4.4-.62z"/>
+{%- else %}<path d="M2.8 8.6l3.4 3.2 7-7.4"/>{% endif %}</svg>
+{%- endmacro %}
+
 {% macro read_mark(note) -%}
-{% if note.is_read %}<span class="check" aria-hidden="true">✓</span><span class="sr-only">Leída: </span>{% endif %}
+{% if note.is_read %}{{ icon('check') }}<span class="sr-only">Leída: </span>{% endif %}
 {%- endmacro %}
 
 {# A note's photo (#18), kept on this PC. Decorative: the headline says what it shows, so alt is
@@ -30,10 +38,11 @@
 {%- endmacro %}
 
 {# The line under a card: who wrote it (or, under «Sigue aquí», which already names them, the
-   section) and how long it takes. #}
+   section) and how long it takes. span.sigue is where a copy without the PC puts the outlets
+   back once that note is read (app.js). #}
 {% macro meta(note, next_core, section=True) -%}
-<p class="meta">{% if note is not sameas next_core %}{{ outlets(note) }} · {% elif section %}{{ note.section }} · {% endif %}{{ note.read_minutes }}&nbsp;min
-  {%- if note.is_favorite %} · <span aria-hidden="true">★</span><span class="sr-only">Favorita</span>{% endif %} {{ tags(note) }}</p>
+<p class="meta">{% if note is not sameas next_core %}{{ outlets(note) }} · {% else %}<span class="sigue">{% if section %}{{ note.section }} · {% endif %}</span>{% endif %}{{ note.read_minutes }}&nbsp;min
+  {%- if note.is_favorite %} · {{ icon('star') }}<span class="sr-only">Favorita</span>{% endif %} {{ tags(note) }}</p>
 {%- endmacro %}
 
 {# The headline shares its view-transition-name with the note's h1: the card morphs into it. #}
@@ -96,8 +105,8 @@
 
 {# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it). #}
 {% set FLAGS = {
-  'n': [('read', 'is_read', 'Leída', '✓'), ('favorite', 'is_favorite', 'Favorita', '★'), ('saved', 'is_saved', 'Guardar', '✓')],
-  'a': [('read', 'is_read', 'Leído', '✓'), ('favorite', 'is_favorite', 'Favorito', '★'), ('saved', 'is_saved', 'Guardar', '✓')],
+  'n': [('read', 'is_read', 'Leída', 'check'), ('favorite', 'is_favorite', 'Favorita', 'star'), ('saved', 'is_saved', 'Guardar', 'check')],
+  'a': [('read', 'is_read', 'Leído', 'check'), ('favorite', 'is_favorite', 'Favorito', 'star'), ('saved', 'is_saved', 'Guardar', 'check')],
 } %}
 
 {% macro toggles(kind, obj) %}
@@ -106,7 +115,7 @@
   {# Originals offer Leído · Guardar; Favorito only to undo one marked before or in the TUI. #}
   {% if kind == 'n' or flag != 'favorite' or obj.is_favorite %}
   <form method="post" action="/{{ kind }}/{{ obj.id }}/estado?flag={{ flag }}">
-    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}"><span class="glyph" aria-hidden="true">{{ glyph }} </span>{{ label }}</button>
+    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{{ icon(glyph) }}{{ label }}</button>
   </form>
   {% endif %}
   {% endfor %}
