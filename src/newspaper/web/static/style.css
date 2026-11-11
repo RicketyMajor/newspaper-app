@@ -426,7 +426,7 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 .note .body { max-width: 34em; padding: 16px var(--gutter) 0; font-size: 18px; line-height: 1.55; }
 .note .body > p:first-child::first-letter { float: left; margin: 0.06em 0.08em 0 0; font-size: 3.15em; font-weight: 700; line-height: 0.8; }
 .note .body p, .note .body ul, .note .body ol { margin: 0 0 1em; }
-.note .body h2, .note .body h3 { margin: 1.2em 0 0.4em; font-size: 21px; }
+.note :is(.body, .diff) :is(h3, h4, h5, h6) { margin: 1.2em 0 0.4em; font-size: 21px; }  /* # and ## in the text (app.py) */
 .note .diff { margin: 8px var(--gutter) 18px; padding: 16px; border-top: 3px solid var(--ink); background: var(--panel); }
 .note .diff h2, .note .src h2 { margin-bottom: 12px; font: 700 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }

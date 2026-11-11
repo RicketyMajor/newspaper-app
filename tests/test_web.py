@@ -320,6 +320,19 @@ def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):
     assert "<script>alert(1)</script>" not in page
 
 
+def test_a_heading_in_a_notes_text_is_never_a_second_h1(client, engine, seeded):
+    # The LLM sometimes writes "# Diferencias": under the note's h1 and its h2 sections, the
+    # body's headings start at h3, and keep their order below it.
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["front"])
+        note.body = "# Contexto\n\nTexto.\n\n## Detalle\n\nMás.\n\n#### Hondo"
+        note.differences = "# Diferencias\n\nCIPER destaca el costo."
+    page = client.get(f"/n/{seeded['front']}").text
+    assert page.count("<h1") == 1
+    assert "<h3>Contexto</h3>" in page and "<h4>Detalle</h4>" in page and "<h6>Hondo</h6>" in page
+    assert "<h3>Diferencias</h3>" in page
+
+
 def test_note_markdown_never_loads_external_images(client, engine, seeded):
     # The body is written by the LLM from third-party text: no tracking pixels.
     with Session(engine) as s, s.begin():

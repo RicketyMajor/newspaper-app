@@ -69,6 +69,14 @@ def _push(config: NewspaperConfig):
         return None
 
 
+def _headings_below_h2(state) -> None:
+    """A note's text sits under its h1 and the page's h2 sections: its own headings move down
+    two levels (# → h3, ## → h4…, h6 at most), so the LLM's "# Diferencias" is never an h1."""
+    for token in state.tokens:
+        if token.type in ("heading_open", "heading_close"):
+            token.tag = f"h{min(6, int(token.tag[1]) + 2)}"
+
+
 def service_worker_script(name: str) -> str:
     """sw.js with the edition's name, icon and badge inlined: showing a notice fetches nothing
     from the PC, which may be out of reach over the tailnet. Served even when the notices are
@@ -140,6 +148,7 @@ def create_app(config: NewspaperConfig) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     # LLM/RSS text is untrusted: no raw HTML, no external images (tracking pixels).
     markdown = MarkdownIt("commonmark", {"html": False}).disable("image")
+    markdown.core.ruler.push("headings_below_h2", _headings_below_h2)
     templates.env.filters["markdown"] = markdown.render
     # Headlines and deks are plain text but for *work titles* in italics; HTML stays escaped.
     templates.env.filters["inline"] = MarkdownIt("zero").enable("emphasis").renderInline
