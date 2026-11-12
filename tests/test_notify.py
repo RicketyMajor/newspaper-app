@@ -393,6 +393,44 @@ def test_one_essential_is_singular_and_work_titles_lose_their_asterisks(config, 
     assert message.body == "Estreno de Hijas Únikas"
 
 
+def test_the_notice_carries_the_front_pages_headlines_for_ntfy(config, engine, seeded):
+    # "No tengo tiempo": the ntfy notice is read without opening anything.
+    with Session(engine) as s, s.begin():
+        world = s.get(Note, seeded["world"])
+        world.is_front, world.headline = True, "Cumbre *COP31* cierra sin acuerdo"
+    message = message_for(config, engine)
+    senado, cumbre = "Senado aprueba reforma de pensiones", "Cumbre COP31 cierra sin acuerdo"
+    assert message.lines == (senado, cumbre)
+    seen = []
+    notify.send_ntfy(NTFY, message, lambda _: None, http=service(200, seen=seen))
+    assert seen[0].content.decode() == (
+        "• Senado aprueba reforma de pensiones\n• Cumbre COP31 cierra sin acuerdo"
+    )
+    assert json.loads(message.payload(7))["body"] == "Senado aprueba reforma de pensiones"
+
+
+def test_only_the_front_page_goes_in_the_lines(config, engine, seeded):
+    assert message_for(config, engine).lines == ("Senado aprueba reforma de pensiones",)
+
+
+def test_without_a_front_page_ntfy_sends_the_body(config, engine, seeded):
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).is_front = False
+    message = message_for(config, engine)
+    assert message.lines == ()
+    seen = []
+    notify.send_ntfy(NTFY, message, lambda _: None, http=service(200, seen=seen))
+    assert seen[0].content.decode() == message.body
+
+
+def test_a_line_is_one_line_and_short(config, engine, seeded):
+    # An undrafted note keeps the outlet's title as is: it could be long, or break a line.
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).headline = "Primera línea\nsegunda " + "x" * 300
+    (line,) = message_for(config, engine).lines
+    assert "\n" not in line and len(line) == 120 and line.startswith("Primera línea segunda")
+
+
 @pytest.mark.parametrize(
     ("day", "body"),
     [

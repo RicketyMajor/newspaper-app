@@ -144,6 +144,9 @@ class Message:
     body: str
     day: date | None = None
     n: int | None = None  # the notice's number (#20a): its pings carry it back
+    # The front page's headlines: ntfy's body, read without opening anything. Web Push keeps
+    # `body` (its 200-character cap).
+    lines: tuple[str, ...] = ()
 
     def payload(self, sid: int) -> bytes:
         # Cut so the JSON stays far below one aes128gcm record (3993 bytes, RFC 8291 §4), even
@@ -243,7 +246,8 @@ def send_ntfy(
     client = nullcontext(http) if http else httpx.Client(timeout=10, follow_redirects=False)
     try:
         with client as client:
-            response = client.post(ntfy.url, params=params, content=message.body.encode())
+            body = "\n".join(f"• {line}" for line in message.lines) or message.body
+            response = client.post(ntfy.url, params=params, content=body.encode())
     except httpx.HTTPError as e:  # a repeat is harmless here: no "uncertain"
         log(f"Aviso no enviado por ntfy: {_why(e)}")
         return Sent(total=1)
@@ -265,8 +269,15 @@ def edition_message(s: Session, config: NewspaperConfig, edition: Edition) -> Me
         core, _ = queries.reading_order(edition.notes)
         if not core:
             return None
-        headline = core[0].headline.replace("*", "")  # *work titles* are italics on the web only
-        return Message("edicion", f"{name} · {_essentials(core)}", headline, edition.edition_date)
+        plain = [n.headline.replace("*", "") for n in core]  # *work titles*: italics on the web
+        # One short line each, at most 10: far below ntfy's 4096 bytes, past which it turns
+        # the body into an attachment.
+        front = [
+            _cut(" ".join(h.split()), 120) for h, n in zip(plain, core, strict=True) if n.is_front
+        ]
+        front = tuple(front[:10])
+        title = f"{name} · {_essentials(core)}"
+        return Message("edicion", title, plain[0], edition.edition_date, lines=front)
     if edition.status == EditionStatus.failed:
         latest = queries.latest_ready_edition(s)
         if latest is None:
