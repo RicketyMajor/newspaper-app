@@ -28,7 +28,10 @@ NAME = re.compile(r"[0-9]+\.(jpg|png|webp|avif)")  # the only files this module 
 
 
 def images_folder(config: NewspaperConfig) -> Path:
-    return Path(config.storage.database_path).expanduser().parent / "images"
+    """`<database stem>-images` next to the database: a folder of the app's own, since prune
+    deletes the photos no note names (a plain `images` could be the reader's)."""
+    db = Path(config.storage.database_path).expanduser()
+    return db.parent / f"{db.stem}-images"
 
 
 def sniff(data: bytes) -> str | None:

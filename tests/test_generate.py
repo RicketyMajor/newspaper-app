@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from newspaper.ai.ollama import NEUTRAL_TOPICS, Draft, OllamaError, OllamaUnavailableError
 from newspaper.config.models import InterestsConfig
 from newspaper.edition.generate import _capitalize, _clean_text, _draft, generate, ingest
+from newspaper.edition.images import images_folder
 from newspaper.edition.today import pid_alive
 from newspaper.storage import queries
 from newspaper.storage.models import Article, Edition, EditionStatus, Note
@@ -181,7 +182,7 @@ def test_published_notes_keep_a_photo_from_their_pages(config, engine, tmp_path)
         assert (senado.image, senado.image_credit) == (f"{senado.id}.jpg", "CIPER")
         assert (atacama.image, atacama.image_credit) == (None, None)  # its page has none
         assert senado.articles[0].image_url == "https://ciper.test/fotos/senado.jpg"
-    assert (tmp_path / "images" / senado.image).read_bytes() == JPEG
+    assert (images_folder(config) / senado.image).read_bytes() == JPEG
     assert "Fotos: 1 de 2" in lines
 
 
@@ -510,7 +511,7 @@ def test_a_forced_run_gives_its_notes_new_ids(config, engine, tmp_path):
     assert run(config, force=True).status == "ready"
     after = notes()
     assert len(after) == 2 and not set(before) & set(after)
-    assert sorted(p.name for p in (tmp_path / "images").iterdir()) == sorted(
+    assert sorted(p.name for p in images_folder(config).iterdir()) == sorted(
         name for name in after.values() if name
     )  # the old notes' photos are gone
 

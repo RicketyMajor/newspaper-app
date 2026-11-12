@@ -3,6 +3,7 @@ import threading
 import time
 from collections.abc import Iterator
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -246,9 +247,15 @@ def test_prune_drops_photos_past_60_days_and_files_no_note_uses(config, engine):
     assert sorted(p.name for p in folder.iterdir()) == [f"{recent_id}.jpg"]
 
 
+def test_the_photos_get_a_folder_named_after_the_database(config):
+    # With database_path = "~/Documents/newspaper.db", a plain ~/Documents/images could be the
+    # reader's own, and prune deletes the numbered photos no note names.
+    db = Path(config.storage.database_path).expanduser()
+    assert images_folder(config) == db.parent / f"{db.stem}-images"
+
+
 def test_prune_only_ever_deletes_photo_names(config, engine):
-    # With database_path = "~/Documents/newspaper.db" the folder is ~/Documents/images: a
-    # folder the reader may share with files of their own.
+    # Even in its own folder, prune touches only the names this module writes.
     folder = images_folder(config)
     folder.mkdir()
     for name in ("notes.txt", "holiday.jpg", "12.jpg.bak", "7.jpg"):
