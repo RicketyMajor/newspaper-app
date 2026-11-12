@@ -36,12 +36,13 @@ Un diario personal. Defines tus fuentes RSS por sección; cada mañana Newspaper
 
 Los sitios de noticias y los lectores de feeds te entregan el mismo acontecimiento cinco veces, de cinco medios, en cinco pestañas. Newspaper los lee todos y escribe **una nota por acontecimiento**, con un breve «dónde difieren» cuando los medios no coinciden, para que la edición se pueda terminar: unas diez notas esenciales y veinticinco minutos, y después el resto si quieres.
 
-Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](https://ollama.com); no hay cuentas, ni servicios en la nube, ni seguimiento. Las únicas salidas a internet son tus feeds, los artículos originales y (si activas el aviso diario) el servicio de push del propio navegador, cifrado de extremo a extremo, o tu tema de ntfy, que ve el texto del aviso.
+Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](https://ollama.com); no hay cuentas, ni servicios en la nube, ni seguimiento. Las únicas salidas a internet son tus feeds, los artículos originales y sus fotos, las páginas de tus cines o encartelera.cl (si pones alguno) y (si activas el aviso diario) el servicio de push del propio navegador, cifrado de extremo a extremo, o tu tema de ntfy, que ve el texto del aviso.
 
 ## Qué hace
 
 - **Una nota por acontecimiento**: artículos agrupados entre medios e idiomas (embeddings multilingües), redactados en tu idioma con titular, bajada, cuerpo, «dónde difieren» y enlaces a cada original.
-- **Una edición que se termina**: un núcleo de unas diez notas (la portada y la primera de cada sección); un sol sube mientras lees, hasta «Pleno día».
+- **Una edición que se termina**: un núcleo de unas diez notas (la portada y la primera de cada sección); una oreja de la cabecera cuenta las que leíste y lleva a la siguiente, hasta «Pleno día».
+- **Aspecto de diario impreso**: cabecera gótica, antetítulos en sello, columnas con filetes y las fotos de los propios medios, copiadas en tu PC y guardadas 60 días (la página nunca carga nada de terceros); una edición nocturna que sigue el modo oscuro del dispositivo, y un filtro «Solo sin leer».
 - **Tres lectores, un solo estado**: un lector de terminal (Textual), uno web local, y esa misma web como app instalable en el teléfono a través de [Tailscale](https://tailscale.com). Las marcas de leída, favorita y guardada se comparten.
 - **Una mañana sin manos** (Windows): el PC despierta, escribe la edición, manda el aviso diario y vuelve a dormir cuando nadie lo está usando.
 - **Leer sin el PC**: cuando llega un aviso por Web Push, o cada vez que la abres con el PC despierto, la app del teléfono guarda una copia de solo lectura de la edición, para leer mientras el PC duerme.
@@ -67,7 +68,7 @@ Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](h
 
 <img alt="El lector de terminal" src="docs/images/tui-front.svg">
 
-<sub>La edición del 28 de octubre de 2026, escrita por `gemma3:12b` a partir de CIPER, Cooperativa, BBC Mundo, DW, El País, elDiario.es y otros. Las capturas siguen el tema claro u oscuro de GitHub, igual que la app.</sub>
+<sub>La edición del 12 de noviembre de 2026, escrita por `gemma3:12b` a partir de CIPER, Cooperativa, BBC Mundo, DW, El País, elDiario.es y otros. Las capturas siguen el tema claro u oscuro de GitHub, igual que la app.</sub>
 
 ## Cómo funciona
 
@@ -84,11 +85,11 @@ flowchart LR
 ```
 
 1. **Descarga** cada feed RSS/Atom/RDF activo de `newspaper.toml` (cada 30 minutos, para que los feeds cortos no pierdan artículos).
-2. **Extrae** el texto público del artículo con trafilatura; si falla, usa el extracto del RSS.
+2. **Extrae** el texto público del artículo con trafilatura (y su foto, la `og:image` de la página); si falla, usa el extracto del RSS.
 3. **Agrupa** los artículos sobre un mismo acontecimiento: embeddings multilingües (`bge-m3`) y un umbral de similitud coseno.
 4. **Elige** una portada (los acontecimientos con más medios y, después, los más recientes) y hasta N notas por sección. Con `[interests]`, el modelo local etiqueta cada acontecimiento: lo «no» va al final y nunca a portada; lo «sí» va primero entre los que tienen tantos medios como él.
 5. **Redacta** cada nota con `gemma3:12b`: titular, bajada, cuerpo y «dónde difieren» cuando hay dos medios o más. Una nota fallida o cortada se reintenta una vez.
-6. **Publica** la edición de forma atómica en SQLite. Si Ollama no responde, la edición falla y se sigue leyendo la anterior.
+6. **Publica** la edición de forma atómica en SQLite y después copia una foto por nota en el PC. Si Ollama no responde, la edición falla y se sigue leyendo la anterior.
 
 ### La mañana, en Windows
 
@@ -185,7 +186,7 @@ El lector web solo escucha en `127.0.0.1`. [Tailscale](https://tailscale.com) lo
 <details>
 <summary><b>El aviso diario, y leer sin el PC</b></summary>
 
-Al pie de Hoy, **Avisarme cuando salga …** suscribe ese navegador (la app instalada cuenta como uno aparte) a un aviso por Web Push. El aviso va cifrado de extremo a extremo y pasa por el servicio de push del navegador (el de Google, en Chrome): la primera salida del PC a internet que no es un feed. Su clave de firma, `vapid.pem`, está junto a la base. Una clave nueva (tras borrarla y correr `newspaper schedule install`) anula todas las suscripciones; cada dispositivo se suscribe otra vez en su próxima visita a Hoy.
+Al pie de Hoy, **Avisarme cuando salga …** suscribe ese navegador (la app instalada cuenta como uno aparte) a un aviso por Web Push. El aviso va cifrado de extremo a extremo y pasa por el servicio de push del navegador (el de Google, en Chrome). Su clave de firma, `vapid.pem`, está junto a la base. Una clave nueva (tras borrarla y correr `newspaper schedule install`) anula todas las suscripciones; cada dispositivo se suscribe otra vez en su próxima visita a Hoy.
 
 - **Cuándo sale:** sin `notice_time` (en `[general]`), cuando se publica cada edición. Con `notice_time = "07:30"` (`HH:MM` local, hasta las 22:59), la tarea `Newspaper aviso` despierta el PC a esa hora y lo manda, reintentando durante 9 minutos mientras vuelve la red; `generate` y `fetch` se lo dejan a la tarea hasta 5 minutos después de esa hora.
 - **Leer sin el PC:** cuando llega un aviso por Web Push (no uno por ntfy), o cada vez que la abres con el PC despierto, la app instalada guarda una copia de solo lectura de la última edición y de Guardado (todo o nada; `status` lo muestra como «guardada»). Mientras el PC duerme o no está al alcance, Hoy, sus notas, Pleno día y Guardado se abren desde esa copia, con la línea «Sin el PC: …» al pie de Hoy. El archivo y la búsqueda necesitan el PC. Los artículos originales se siguen abriendo, porque vienen de internet. Las aperturas, las marcas del aviso y las fuentes que abres quedan en una cola con su hora y se mandan cuando el PC vuelve a responder.
@@ -215,17 +216,16 @@ Por feed (`[[feeds]]`), reglas opcionales: expresiones regulares que se buscan (
 
 ## Hoja de ruta
 
-- Un aviso que sobreviva a los teléfonos con poca memoria (la copia para leer sin el PC).
 - Marcas de leída que vuelvan desde la copia sin conexión.
 - Un botón «No me interesa» que baje las historias parecidas.
-- Una nota por historia en desarrollo, e imágenes de los medios.
+- Una nota por historia en desarrollo.
 - Secciones por tema, y gestionar fuentes e intereses desde la web.
 - Más conectores (Hacker News, GitHub), otros motores de IA local, Linux y macOS, y un paquete en PyPI.
 
 ## Desarrollo
 
 ```powershell
-pytest                       # 340 tests; sin red ni Ollama
+pytest                       # 457 tests; sin red ni Ollama
 ruff check src tests
 ruff format --check src tests
 ```
@@ -234,4 +234,4 @@ El CI corre los tres en Windows con cada push a `master`.
 
 ## Tipografías
 
-Las fuentes tipográficas incluidas (Newsreader y Atkinson Hyperlegible Next) tienen la licencia SIL Open Font License; ver `src/newspaper/web/static/fonts/`.
+Las fuentes tipográficas incluidas (Newsreader, Atkinson Hyperlegible Next y, para la cabecera, UnifrakturMaguntia) tienen la licencia SIL Open Font License; ver `src/newspaper/web/static/fonts/`.

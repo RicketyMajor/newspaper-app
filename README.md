@@ -36,12 +36,13 @@ A personal daily newspaper. You list your RSS sources by section; every morning 
 
 News sites and feed readers hand you the same event five times, from five outlets, in five tabs. Newspaper reads them all and writes **one note per event**, with a short "where they differ" when outlets disagree, so the edition can be finished: about ten essential notes and twenty-five minutes, then the rest if you want it.
 
-Everything runs on your own computer. The language models run in [Ollama](https://ollama.com); there are no accounts, no cloud services, and no tracking. The only outbound requests are your feeds, the original articles, and (if you turn on the daily notice) the browser's own push service, end-to-end encrypted, or your ntfy topic, which sees the notice's text.
+Everything runs on your own computer. The language models run in [Ollama](https://ollama.com); there are no accounts, no cloud services, and no tracking. The only outbound requests are your feeds, the original articles and their photos, your cinemas' pages or encartelera.cl (if you list any), and (if you turn on the daily notice) the browser's own push service, end-to-end encrypted, or your ntfy topic, which sees the notice's text.
 
 ## Features
 
 - **One note per event**: articles grouped across outlets and languages (multilingual embeddings), written in your language with headline, dek, body, "where they differ" and links to every original.
-- **A finishable edition**: a core of about ten notes (the front page plus the first of each section); a sun climbs as you read, up to "Pleno día" (full day).
+- **A finishable edition**: a core of about ten notes (the front page plus the first of each section); an ear of the masthead counts the ones you've read and leads to the next, up to "Pleno día" (full day).
+- **A printed-paper look**: a blackletter nameplate, stamp kickers, ruled columns and the outlets' own photos, copied to your PC and kept 60 days (the page never loads anything from third parties); a night edition that follows your device's dark mode, and an unread-only filter.
 - **Three readers, one state**: a terminal reader (Textual), a local web reader, and the same web as an installable app on your phone through [Tailscale](https://tailscale.com). Read, favorite and saved marks are shared.
 - **A hands-free morning** (Windows): the PC wakes up, writes the edition, sends the daily notice, and goes back to sleep when nobody is using it.
 - **Reading without the PC**: when a Web Push notice arrives, or whenever you open it with the PC awake, the phone app keeps a read-only copy of the edition, so you can read while the PC sleeps.
@@ -67,7 +68,7 @@ Everything runs on your own computer. The language models run in [Ollama](https:
 
 <img alt="The terminal reader" src="docs/images/tui-front.svg">
 
-<sub>The edition of 28 October 2026, as written by `gemma3:12b` from CIPER, Cooperativa, BBC Mundo, DW, El País, elDiario.es and others. The screenshots follow GitHub's light or dark theme, like the app does.</sub>
+<sub>The edition of 12 November 2026, as written by `gemma3:12b` from CIPER, Cooperativa, BBC Mundo, DW, El País, elDiario.es and others. The screenshots follow GitHub's light or dark theme, like the app does.</sub>
 
 ## How it works
 
@@ -84,11 +85,11 @@ flowchart LR
 ```
 
 1. **Fetch** every enabled RSS/Atom/RDF feed in `newspaper.toml` (every 30 minutes, so short feeds don't lose articles).
-2. **Extract** the public article text with trafilatura; fall back to the RSS excerpt.
+2. **Extract** the public article text with trafilatura (and its photo, the page's `og:image`); fall back to the RSS excerpt.
 3. **Group** articles about the same event: multilingual embeddings (`bge-m3`) and a cosine-similarity threshold.
 4. **Select** a front page (events covered by the most outlets, then the most recent) and up to N notes per section. With `[interests]`, the local model tags each event: "dislike" ones go last and never to the front page, "like" ones go first among events covered by as many outlets.
 5. **Write** each note with `gemma3:12b`: headline, dek, body, and "where sources differ" when there are two or more outlets. A failed or truncated note is retried once.
-6. **Publish** the edition atomically in SQLite. If Ollama is down the edition fails and the previous one stays readable.
+6. **Publish** the edition atomically in SQLite, then copy one photo per note to the PC. If Ollama is down the edition fails and the previous one stays readable.
 
 ### The morning, on Windows
 
@@ -185,7 +186,7 @@ The web reader only listens on `127.0.0.1`. [Tailscale](https://tailscale.com) p
 <details>
 <summary><b>The daily notice, and reading without the PC</b></summary>
 
-At the foot of Today, **Avisarme cuando salga …** subscribes that browser (the installed app counts as its own) to a Web Push notice. The notice is end-to-end encrypted and goes through the browser's push service (Google's, for Chrome): the PC's first outbound request that isn't a feed. Its signing key, `vapid.pem`, sits next to the database. A new key (after deleting it and running `newspaper schedule install`) voids every subscription; each device subscribes again on its next visit to Today.
+At the foot of Today, **Avisarme cuando salga …** subscribes that browser (the installed app counts as its own) to a Web Push notice. The notice is end-to-end encrypted and goes through the browser's push service (Google's, for Chrome). Its signing key, `vapid.pem`, sits next to the database. A new key (after deleting it and running `newspaper schedule install`) voids every subscription; each device subscribes again on its next visit to Today.
 
 - **When it goes out:** without `notice_time` (in `[general]`), when each edition is published. With `notice_time = "07:30"` (local `HH:MM`, up to 22:59), the `Newspaper aviso` task wakes the PC at that time and sends it, retrying for 9 minutes while the network comes back; `generate` and `fetch` leave it to the task until 5 minutes past that time.
 - **Reading without the PC:** when a Web Push notice arrives (not one by ntfy), or whenever you open it with the PC awake, the installed app saves a read-only copy of the latest edition and of Guardado (all or nothing; `status` shows it as «guardada»). While the PC sleeps or is out of reach, Today, its notes, Pleno día and Guardado open from that copy, with the line «Sin el PC: …» at the foot of Today. Archive and search need the PC. The original articles still open, since they come from the internet. Openings, the notice's marks and the sources you open are queued with their time and sent when the PC answers again.
@@ -215,17 +216,16 @@ Optional `[interests]` (see the commented example): `like` and `dislike` lists o
 
 ## Roadmap
 
-- A notice that survives phones short on memory (the copy for reading without the PC).
 - Read marks that sync back from the offline copy.
 - A "Not interested" button that lowers similar stories.
-- One note per developing story, and images from the outlets.
+- One note per developing story.
 - Sections by topic, and managing sources and interests from the web.
 - More connectors (Hacker News, GitHub), other local LLM backends, Linux and macOS, and a PyPI package.
 
 ## Development
 
 ```powershell
-pytest                       # 340 tests; no network or Ollama needed
+pytest                       # 457 tests; no network or Ollama needed
 ruff check src tests
 ruff format --check src tests
 ```
@@ -234,4 +234,4 @@ CI runs the same three on Windows for every push to `master`.
 
 ## Fonts
 
-The bundled fonts (Newsreader and Atkinson Hyperlegible Next) are under the SIL Open Font License; see `src/newspaper/web/static/fonts/`.
+The bundled fonts (Newsreader, Atkinson Hyperlegible Next and, for the nameplate, UnifrakturMaguntia) are under the SIL Open Font License; see `src/newspaper/web/static/fonts/`.
