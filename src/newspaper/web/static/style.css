@@ -322,6 +322,11 @@ article.lead { padding-bottom: 12px; border-bottom: 1px solid var(--ink); }
 .first .ph img { aspect-ratio: 4 / 3; }
 .first .cap { margin-top: 3px; }
 .first .dek { margin: 8px 0 4px; font-size: 15px; line-height: 1.35; }
+/* At 200% zoom (~180 px) a 130 px photo beside the headline leaves it a few pixels: below it. */
+@media (max-width: 299px) {
+  .first-top { flex-direction: column; }
+  .first .ph { width: 100%; }
+}
 .row {
   display: flex;
   gap: 10px;
@@ -571,7 +576,6 @@ p.next a { font: 600 13px/1 var(--sans); }
 #atajos .atajos-on input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 kbd { padding: 1px 6px; border: 1px solid var(--rule); border-radius: 2px; font: 600 0.9em var(--sans); }
 .atajos-abrir { min-height: 24px; padding: 2px; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
-@media not (hover: hover) { .keys-hint { display: none; } }
 
 /* «Solo sin leer» (Today): what's read steps out, and a section or fold with nothing left goes
    with it. html.oculta-leidas is set before the first paint (front.html). */

@@ -52,8 +52,9 @@
   </nav>
   {% endblock %}
   <main id="main">{% block content %}{% endblock %}</main>
-  {# The button reaches the list even with the shortcuts off (then ? does nothing). #}
-  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar.<span class="keys-hint"> <button type="button" class="atajos-abrir">Atajos de teclado</button></span></footer>
+  {# The button reaches the list even with the shortcuts off (then ? does nothing), and on a
+     touch screen with a keyboard: never hide it behind a hover query. #}
+  <footer class="colophon">Redactado localmente a partir de las fuentes enlazadas. Revisa los originales antes de citar. <button type="button" class="atajos-abrir">Atajos de teclado</button></footer>
   <dialog id="atajos" aria-labelledby="atajos-t">
     <h2 id="atajos-t">Atajos de teclado</h2>
     <dl>
