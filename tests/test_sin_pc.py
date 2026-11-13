@@ -74,6 +74,16 @@ def test_a_dismissal_changes_the_revision(client, engine, seeded):
     assert client.get("/sin-pc").json()["revision"] != first
 
 
+def test_undoing_a_dismissal_gives_back_the_revision_the_copy_has(client, seeded):
+    first = client.get("/sin-pc").json()["revision"]
+    toggle = f"/n/{seeded['front']}/estado?flag=dismissed"
+    json_ = {"Accept": "application/json", **SAME}
+    assert client.post(toggle, headers=json_).json() == {"value": True}
+    assert client.get("/sin-pc").json()["revision"] != first
+    assert client.post(toggle, headers=json_).json() == {"value": False}
+    assert client.get("/sin-pc").json()["revision"] == first  # the same pages: nothing to save
+
+
 def test_a_forced_run_and_an_upgrade_change_the_revision(client, engine, seeded, monkeypatch):
     def revision(finished=None):
         if finished:

@@ -338,13 +338,18 @@ def test_a_note_can_be_dismissed_and_undone(client, engine, seeded):
     page = client.get(f"/n/{seeded['world']}").text
     assert 'class="note rechazada"' in page
     assert "<strong>No te interesa:</strong>" in page
-    assert f'action="/n/{seeded["world"]}/estado?flag=dismissed"' in page
+    form = page.split(f'action="/n/{seeded["world"]}/estado?flag=dismissed">')[1]
+    assert form.lstrip().startswith('<button aria-pressed="true">')
     assert client.post(url, headers=json_).json() == {"value": False}
-    assert "rechazada" not in client.get(f"/n/{seeded['world']}").text
+    page = client.get(f"/n/{seeded['world']}").text
+    assert "rechazada" not in page
+    form = page.split(f'action="/n/{seeded["world"]}/estado?flag=dismissed">')[1]
+    assert form.lstrip().startswith('<button aria-pressed="false">')
 
 
-def test_only_a_note_can_be_dismissed(client, seeded):
+def test_only_a_note_that_exists_can_be_dismissed(client, seeded):
     assert client.post(f"/a/{seeded['articles'][0]}/estado?flag=dismissed").status_code == 422
+    assert client.post("/n/999999/estado?flag=dismissed").status_code == 404
 
 
 def test_a_note_lowered_by_d_says_why(client, engine, seeded):

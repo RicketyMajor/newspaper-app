@@ -1,7 +1,7 @@
 import logging
 import re
 from contextlib import contextmanager
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from types import SimpleNamespace
 
 import httpx
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from newspaper import cli, schedule
 from newspaper.cli import main
 from newspaper.edition.generate import GenerateResult
-from newspaper.storage.models import CinemaVenue, Note, PushSubscription, utcnow
+from newspaper.storage.models import CinemaVenue, Note, PushSubscription
 
 
 def write_config(tmp_path, db_path, extra=""):
@@ -247,15 +247,26 @@ def test_status_counts_undrafted_notes(tmp_path, engine, seeded):
     assert "1 sin redactar (detalle en" in result.output
 
 
-def test_status_counts_active_dismissals(tmp_path, engine, seeded):
+def test_status_counts_active_dismissals(tmp_path, engine, seeded, monkeypatch):
+    monkeypatch.setattr(cli, "utcnow", lambda: datetime(2026, 11, 13, 12))
     config = write_config(tmp_path, tmp_path / "newspaper.db")
     result = CliRunner().invoke(main, ["--config", str(config), "status"])
     assert "No me interesa" not in result.output  # none yet: no line
     with Session(engine) as s, s.begin():
-        s.get(Note, seeded["world"]).dismissed_at = utcnow() - timedelta(days=1)
+        # Ends 13 Dec at 02:00 UTC: still the 12th in Santiago (UTC-3 in summer).
+        s.get(Note, seeded["world"]).dismissed_at = datetime(2026, 11, 13, 2)
     result = CliRunner().invoke(main, ["--config", str(config), "status"])
     assert result.exit_code == 0, result.output
-    assert "No me interesa: 1 activa (la última, hasta el " in result.output
+    assert "No me interesa: 1 activa (la última, hasta el 12-12)" in result.output
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).dismissed_at = datetime(2026, 11, 1, 12)
+        s.get(Note, seeded["world"]).dismissed_at = datetime(2026, 10, 14, 11)  # past 30 days
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+    assert "No me interesa: 1 activa (la última, hasta el 01-12)" in result.output
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["world"]).dismissed_at = datetime(2026, 11, 13, 2)
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+    assert "No me interesa: 2 activas (la última, hasta el 12-12)" in result.output
 
 
 def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded):
