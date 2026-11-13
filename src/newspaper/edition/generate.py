@@ -169,6 +169,14 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
                 return None, "La edición de hoy ya está lista (usa --force para regenerarla)."
             if running(edition):
                 return None, busy
+            # A failure's notice («Hoy no hubo edición nueva») stops being true once it is
+            # retried: the edition owes its own notice again (#30, 13 Nov). A forced run on a
+            # ready edition keeps the one already sent.
+            funnel = (
+                dict(notified_at=None, delivered_at=None, clicked_at=None, cached_at=None)
+                if edition.status == EditionStatus.failed
+                else {}
+            )
             # Compare-and-set on (status, started_at): only one process wins a takeover.
             claimed = s.execute(
                 update(Edition)
@@ -184,6 +192,7 @@ def _claim(engine: Engine, day: date, force: bool) -> tuple[int | None, str]:
                     finished_at=None,
                     error=None,
                     feed_errors=None,
+                    **funnel,
                 )
                 .execution_options(synchronize_session=False)
             ).rowcount

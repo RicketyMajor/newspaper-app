@@ -314,7 +314,8 @@ def edition_notice(
     guard: bool = True,
     now: datetime | None = None,
 ) -> bool:
-    """The automatic notice: at most one per edition, never for one already opened. Runs after
+    """The automatic notice: at most one per edition, never for one already opened; retrying a
+    failed edition clears its failure notice, so each retry owes one of its own (#30). Runs after
     every `generate` and at the start of every `fetch` (decision 2026-10-21), and with
     `guard=False` from the notice task (`notify --pendiente`): with notice_time set, the
     others wait until it plus NOTICE_GRACE. True when this call's notice went out."""

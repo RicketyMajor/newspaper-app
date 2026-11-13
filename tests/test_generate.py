@@ -11,8 +11,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from newspaper import notify
 from newspaper.ai.ollama import NEUTRAL_TOPICS, Draft, OllamaError, OllamaUnavailableError
-from newspaper.config.models import InterestsConfig
+from newspaper.config.models import InterestsConfig, NtfyConfig
 from newspaper.edition.generate import _capitalize, _clean_text, _draft, generate, ingest
 from newspaper.edition.images import images_folder
 from newspaper.edition.today import pid_alive
@@ -488,6 +489,46 @@ def test_pid_alive():
 def test_crashed_or_failed_generation_is_taken_over(config, engine):
     add_today(engine, status=EditionStatus.generating, pid=dead_pid())
     assert run(config).status == "ready"
+
+
+def test_a_retried_failed_edition_owes_its_notice_again(config, engine, monkeypatch):
+    # 13 Nov (#30): the first try failed (Ollama still starting after a power cut) and its
+    # notice, «Hoy no hubo edición nueva», used up the edition's only one; the retry that
+    # worked never told anyone.
+    sent = datetime(2026, 11, 13, 12, 25)
+    add_today(
+        engine,
+        status=EditionStatus.failed,
+        notified_at=sent,
+        delivered_at=sent,
+        clicked_at=sent,
+        cached_at=sent,
+    )
+    assert run(config).status == "ready"
+    with Session(engine) as s:
+        edition = queries.today_edition(s, TODAY)
+        assert (edition.delivered_at, edition.clicked_at, edition.cached_at) == (None,) * 3
+    told = []
+
+    def fake_ntfy(_ntfy, message, _log):
+        told.append(message)
+        return notify.Sent(accepted=1, total=1)
+
+    monkeypatch.setattr(notify, "send_ntfy", fake_ntfy)
+    topic = NtfyConfig(url="https://ntfy.sh/t", click="https://pc.ts.net/")
+    assert notify.edition_notice(config.model_copy(update={"ntfy": topic}), TODAY, print, now=NOW)
+    [message] = told  # the ready edition's notice, not a second failure one
+    assert "Hoy no hubo" not in message.title and message.lines
+
+
+def test_a_forced_run_keeps_the_notice_already_sent(config, engine):
+    assert run(config).status == "ready"
+    sent = datetime(2026, 11, 13, 10, 30)
+    with Session(engine) as s, s.begin():
+        queries.today_edition(s, TODAY).notified_at = sent
+    assert run(config, force=True).status == "ready"
+    with Session(engine) as s:
+        assert queries.today_edition(s, TODAY).notified_at == sent
 
 
 def test_ready_edition_is_kept_unless_forced(config, engine):
