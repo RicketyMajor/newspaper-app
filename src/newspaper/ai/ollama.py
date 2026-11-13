@@ -93,6 +93,11 @@ noticia; si encaja en varios, el que aparece primero en la lista. Si no encaja e
 Temas:
 {topics}
 """
+# D (#7, 13 Nov): the yes/no that beat naming a topic in the dry runs (archive/2026-11-12-d/).
+PAIR_PROMPT = """\
+Al lector no le interesó la noticia A. Decide si la noticia B sigue el mismo asunto: el mismo \
+caso, la misma persona u organización por lo mismo, o el mismo hecho que continúa. Compartir \
+solo un tema amplio (política, tribunales, tecnología, un país) no basta."""
 
 
 _QUOTED = re.compile(r'"([^"\n]*)"')
@@ -205,3 +210,32 @@ class Ollama:
         if topic not in choices:
             raise OllamaError(f"classify: tema desconocido ({topic!r})")
         return topic
+
+    def same_matter(self, rejected: str, candidate: str) -> bool:
+        """Whether `candidate` follows the same matter as `rejected`, a note the reader
+        dismissed (D): the same case, person or organisation, or the same event going on."""
+        data = self._post(
+            "/api/chat",
+            {
+                "model": self.cfg.model,
+                "stream": False,
+                "format": {
+                    "type": "object",
+                    "properties": {"mismo_asunto": {"type": "boolean"}},
+                    "required": ["mismo_asunto"],
+                },
+                # Same num_ctx as draft: a different one makes Ollama reload the model.
+                "options": {"temperature": 0, "num_ctx": NUM_CTX},
+                "messages": [
+                    {"role": "system", "content": PAIR_PROMPT},
+                    {"role": "user", "content": f"A: {rejected}\n\nB: {candidate}"},
+                ],
+            },
+        )
+        try:
+            same = json.loads(data["message"]["content"])["mismo_asunto"]
+        except (KeyError, TypeError, json.JSONDecodeError) as e:
+            raise OllamaError(f"same_matter: JSON inválido ({e})") from e
+        if not isinstance(same, bool):
+            raise OllamaError(f"same_matter: respuesta no booleana ({same!r})")
+        return same

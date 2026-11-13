@@ -178,6 +178,31 @@ def test_classify_rejects_unusable_answers(content):
     assert not isinstance(info.value, OllamaUnavailableError)
 
 
+def test_same_matter_asks_yes_or_no_about_the_pair():
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": '{"mismo_asunto": true}'}})
+
+    assert ollama_with(handler).same_matter("Caso Hermosilla\nBajada", "Formalizado Hermosilla")
+    assert seen["format"]["properties"] == {"mismo_asunto": {"type": "boolean"}}
+    assert seen["options"] == {"temperature": 0, "num_ctx": 8192}
+    assert (
+        seen["messages"][1]["content"] == "A: Caso Hermosilla\nBajada\n\nB: Formalizado Hermosilla"
+    )
+
+
+@pytest.mark.parametrize("content", ["no json", '{"mismo_asunto": "sí"}', "{}"])
+def test_same_matter_rejects_unusable_answers(content):
+    def handler(request):
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    with pytest.raises(OllamaError) as info:
+        ollama_with(handler).same_matter("a", "b")
+    assert not isinstance(info.value, OllamaUnavailableError)
+
+
 def test_cluster_groups_similar_vectors_transitively():
     vectors = [
         [1.0, 0.0, 0.0],

@@ -1,7 +1,8 @@
 import os
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from array import array
+from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -147,6 +148,107 @@ def test_without_interests_nothing_is_classified(config):
     llm = TopicLLM()
     assert run(config, llm).status == "ready"
     assert llm.topic_lists == []
+
+
+class MatterLLM(TopicLLM):
+    """«Same matter» for the candidates that contain one of `same`; records every question."""
+
+    def __init__(self, same=(), error=None):
+        super().__init__()
+        self.same, self.matter_error, self.asked = set(same), error, []
+
+    def same_matter(self, rejected, candidate):
+        self.asked.append((rejected, candidate))
+        if self.matter_error:
+            raise self.matter_error
+        return any(t in candidate for t in self.same)
+
+
+def dismiss_earlier(engine, headline, vector, dismissed_days_ago=1):
+    """An earlier edition's note, dismissed, made of one article with that embedding."""
+    old_day = TODAY - timedelta(days=10)
+    with Session(engine) as s, s.begin():
+        article = Article(
+            url=f"https://old.test/{len(headline)}",
+            title=headline,
+            source_name="CIPER",
+            section="Chile",
+            published_at=datetime(2026, 9, 30, 12, 0),  # far outside the 36 h window
+            embedding=array("f", vector).tobytes(),
+        )
+        note = Note(
+            section="Chile",
+            rank=0,
+            headline=headline,
+            dek="Bajada vieja",
+            body="Cuerpo.",
+            articles=[article],
+            dismissed_at=NOW.replace(tzinfo=None) - timedelta(days=dismissed_days_ago),
+        )
+        s.add(Edition(edition_date=old_day, status=EditionStatus.ready, notes=[note]))
+
+
+def test_a_group_on_a_dismissed_matter_goes_down_labelled(config, engine):
+    dismiss_earlier(engine, "Senado debate *pensiones*", [1.0, 0.0])
+    llm = MatterLLM(same=[SENADO[0]])
+    lines = []
+    assert run(config, llm, log=lines.append).status == "ready"
+    assert len(llm.asked) == 1  # Atacama ([0, 1]) is far: never asked
+    assert llm.asked[0][0] == "Senado debate *pensiones*\nBajada vieja"
+    with Session(engine) as s:
+        senado = s.scalars(select(Note).where(Note.headline == f"Nota: {SENADO[0]}")).one()
+        assert (senado.interest, senado.interest_liked) == (
+            "parecida a «Senado debate pensiones»",
+            False,
+        )
+        assert not senado.is_front
+    assert "No me interesa: bajan 1 de 2 grupos (1 pregunta, 1 rechazada activa)" in lines
+
+
+def test_a_no_from_gemma3_leaves_the_group_as_it_was(config, engine):
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
+    assert run(config, MatterLLM(same=())).status == "ready"
+    with Session(engine) as s:
+        interests = {n.interest for n in s.scalars(select(Note)) if n.dismissed_at is None}
+        assert interests == {None}
+
+
+def test_a_dismissal_older_than_30_days_asks_nothing(config, engine):
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0], dismissed_days_ago=31)
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm).status == "ready"
+    assert llm.asked == []
+
+
+def test_d_beats_a_yes_but_an_a_no_stays_and_is_not_asked(config, engine):
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
+    config.interests = InterestsConfig(like=["política"])  # TopicLLM: Senado is "política"
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm).status == "ready"
+    with Session(engine) as s:
+        senado = s.scalars(select(Note).where(Note.headline == f"Nota: {SENADO[0]}")).one()
+        assert senado.interest_liked is False  # the "sí" of A lost to D
+    config.interests = InterestsConfig(dislike=["política"])
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm, force=True).status == "ready"
+    assert llm.asked == []  # already "no" by A: D never asks
+    with Session(engine) as s:
+        senado = s.scalars(select(Note).where(Note.headline == f"Nota: {SENADO[0]}")).one()
+        assert senado.interest == "política"
+
+
+def test_a_failed_comparison_leaves_the_group_and_is_logged(config, engine):
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
+    lines = []
+    llm = MatterLLM(same=[SENADO[0]], error=OllamaError("same_matter: JSON inválido"))
+    assert run(config, llm, log=lines.append).status == "ready"
+    assert any(line.startswith("  Sin comparar") for line in lines)
+
+
+def test_ollama_down_while_comparing_fails_the_edition(config, engine):
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
+    llm = MatterLLM(error=OllamaUnavailableError("Ollama no responde"))
+    assert run(config, llm).status == "failed"
 
 
 def test_generate_publishes_a_ready_edition(config, engine):

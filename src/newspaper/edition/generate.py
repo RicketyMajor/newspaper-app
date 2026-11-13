@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import textwrap
 from array import array
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -37,6 +38,8 @@ MAX_CHARS_PER_ARTICLE = 6000
 MAX_CHARS_PER_NOTE = 24000
 EMBED_BATCH = 32
 CLASSIFY_CHARS = 300  # of the group's first article, after its titles
+DISMISS_FLOOR = 0.45  # bge-m3 cosine; the 12 Nov calibration had sequels at 0.47-0.56
+DISMISS_LABEL_CHARS = 60
 # ponytail: this many failed notes in a row means Ollama is hung (each waits timeout_seconds),
 # not a bad note; fail the edition instead of publishing it undrafted.
 FAILED_DRAFTS_IN_A_ROW = 3
@@ -269,6 +272,7 @@ def _build_notes(
                 .order_by(Article.id)
             )
         )
+        dismissed = queries.active_dismissals(s, now_utc)  # D: loaded with their articles
         if not pending:
             raise RuntimeError("Sin artículos nuevos desde la última edición.")
 
@@ -300,6 +304,7 @@ def _build_notes(
         for idx in cluster(vectors, config.edition.cluster_threshold)
     ]
     interests = _classify(llm, groups, config.interests, log)
+    interests = _dismissed(llm, groups, interests, dismissed, log)
     selected = select_groups(
         groups,
         config.sections,
@@ -321,6 +326,12 @@ def _build_notes(
     return drafts
 
 
+def _group_text(group: list[Article]) -> str:
+    """What the model reads of a group: up to 3 titles and the start of the first article."""
+    lead = " ".join((group[0].content or group[0].summary or "").split())
+    return "\n".join(a.title for a in group[:3]) + "\n\n" + lead[:CLASSIFY_CHARS]
+
+
 def _classify(
     llm: Ollama,
     groups: list[list[Article]],
@@ -334,8 +345,7 @@ def _classify(
     log(f"Clasificando {len(groups)} grupos por interés…")
     found: list[Interest | None] = []
     for group in groups:
-        lead = " ".join((group[0].content or group[0].summary or "").split())
-        text = "\n".join(a.title for a in group[:3]) + "\n\n" + lead[:CLASSIFY_CHARS]
+        text = _group_text(group)
         try:
             topic = llm.classify(text, topics)
         except OllamaUnavailableError:
@@ -350,6 +360,71 @@ def _classify(
         else:
             found.append(None)
     return found
+
+
+def _centroid(blobs: list[bytes]) -> list[float] | None:
+    """The mean of the unit vectors, unit again; None without any."""
+    units = []
+    for blob in blobs:
+        v = array("f", blob)
+        norm = math.sqrt(math.sumprod(v, v)) or 1.0
+        units.append([x / norm for x in v])
+    if not units:
+        return None
+    mean = [sum(xs) / len(units) for xs in zip(*units, strict=True)]
+    norm = math.sqrt(math.sumprod(mean, mean)) or 1.0
+    return [x / norm for x in mean]
+
+
+def _dismissed(
+    llm: Ollama,
+    groups: list[list[Article]],
+    found: list[Interest | None],
+    dismissed: list[Note],
+    log: Callable[[str], None],
+) -> list[Interest | None]:
+    """D (#7): a group that follows the matter of a note dismissed in the last 30 days goes
+    "no", labelled with that note's headline. bge-m3 picks the candidates (cosine >=
+    DISMISS_FLOOR), gemma3 says yes or no, the nearest first. A "no" of A stays as it is."""
+    rejected = [
+        (note, centre)
+        for note in dismissed
+        if (centre := _centroid([a.embedding for a in note.articles if a.embedding]))
+    ]
+    if not rejected:
+        return found
+    out, asked = list(found), 0
+    for i, group in enumerate(groups):
+        if out[i] is not None and not out[i].liked:
+            continue
+        centre = _centroid([a.embedding for a in group if a.embedding])
+        if centre is None:
+            continue
+        near = sorted(
+            ((math.sumprod(centre, c), note) for note, c in rejected), key=lambda p: -p[0]
+        )
+        for score, note in near:
+            if score < DISMISS_FLOOR:
+                break
+            asked += 1
+            try:
+                same = llm.same_matter(f"{note.headline}\n{note.dek}", _group_text(group))
+            except OllamaUnavailableError:
+                raise
+            except OllamaError as e:
+                log(f"  Sin comparar ({group[0].title}): {e}")
+                continue
+            if same:
+                plain = note.headline.replace("*", "")
+                cut = textwrap.shorten(plain, DISMISS_LABEL_CHARS, placeholder="…")
+                out[i] = Interest(f"parecida a «{cut}»", liked=False)
+                break
+    lowered = sum(a is not b for a, b in zip(out, found, strict=True))
+    n = len(rejected)
+    q = "pregunta" if asked == 1 else "preguntas"
+    r = "rechazada activa" if n == 1 else "rechazadas activas"
+    log(f"No me interesa: bajan {lowered} de {len(groups)} grupos ({asked} {q}, {n} {r})")
+    return out
 
 
 def _materials(articles: list[Article]) -> list[tuple[str, str, str]]:
