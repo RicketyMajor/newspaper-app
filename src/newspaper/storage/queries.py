@@ -126,14 +126,15 @@ def section_counts(s: Session, edition_id: int) -> list[tuple[str, int]]:
 def reading_order(notes: list[Note]) -> tuple[list[Note], list[Note]]:
     """(core, rest) of an edition's notes in rank order. The core is what the day's reading
     can finish: the front page, then the first note of each section outside it. The reading
-    path is core + rest. A dismissed note («No me interesa») stays out of the core."""
+    path is core + rest. A dismissed note («No me interesa») stays out of the core and goes
+    last in the rest, so going on after Pleno día never opens it first."""
     firsts: dict[str, Note] = {}
     for note in notes:
         if not note.is_front and not note.is_dismissed:
             firsts.setdefault(note.section, note)
     core = [n for n in notes if n.is_front and not n.is_dismissed] + list(firsts.values())
     rest = [n for n in notes if n not in core]  # ponytail: O(n²) on ~40 notes
-    return core, rest
+    return core, sorted(rest, key=lambda n: n.is_dismissed)  # stable: rank order otherwise
 
 
 def get_note(s: Session, note_id: int) -> Note | None:

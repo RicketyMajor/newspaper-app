@@ -126,6 +126,22 @@ def test_section_lines_fold_past_four(client, engine, seeded):
     assert "y 1 más en Mundo" in page and page.count('<a class="row') == 5
 
 
+def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        world = s.get(Note, seeded["world"])
+        world.dismissed_at = utcnow()
+        s.get(Note, seeded["front"]).is_read = True  # the reading goes on in Mundo
+        world.edition.notes.append(
+            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
+                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
+        )  # fmt: skip
+    page = client.get("/").text
+    head = page.split('<article class="first')[1].split("</article>")[0]
+    assert "Sigue aquí" in head and "Otra de Mundo" in head  # the core's note leads Mundo
+    lines = page.split('<article class="first')[1].split("</article>")[1]
+    assert "Cumbre climática" in lines.split("</section>")[0]  # the dismissed one, a line
+
+
 def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seeded):
     page = client.get("/").text
     assert "CIPER y Cooperativa" in page

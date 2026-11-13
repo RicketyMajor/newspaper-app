@@ -300,11 +300,13 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         if edition is None:
             return render(request, s, "empty.html", edition=None, notice_key=key)
         core = queries.reading_order(edition.notes)[0]
-        # Each section: its first note (the core's) with a photo, then lines.
+        # Each section: its core note with a photo, then lines. That's its first note unless the
+        # reader dismissed it («No me interesa»): the next one leads, the dismissed one is a line.
         sections = []
         for name, _ in queries.section_counts(s, edition.id):
-            first, *rest = queries.section_notes(s, edition.id, name)
-            sections.append((name, first, rest))
+            notes = queries.section_notes(s, edition.id, name)
+            head = next((n for n in notes if n in core), notes[0])
+            sections.append((name, head, [n for n in notes if n is not head]))
         # The masthead's right ear (#29): today's shows, whatever the edition's day. The copy
         # without the PC changes with the board, so it stays in step.
         cine_today = None

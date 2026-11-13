@@ -82,6 +82,15 @@ def test_a_dismissed_note_leaves_the_core():
     assert [n.id for n in rest] == [0, 1]
 
 
+def test_the_rest_ends_with_the_dismissed_notes():
+    # After Pleno día, «Seguir con el resto» opens rest[0]: never a note the reader dismissed.
+    notes = [_n(0, "Mundo", True), _n(1, "Chile"), _n(2, "Chile"), _n(3, "Mundo"), _n(4, "Mundo")]
+    notes[1].dismissed_at = datetime(2026, 11, 13)
+    core, rest = queries.reading_order(notes)
+    assert [n.id for n in core] == [0, 2, 3]
+    assert [n.id for n in rest] == [4, 1]
+
+
 def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):
     with Session(engine) as s, s.begin():
         assert queries.set_flag(s, "note", seeded["front"], "favorite") is True
