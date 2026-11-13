@@ -43,6 +43,9 @@ DISMISS_LABEL_CHARS = 60
 # ponytail: this many failed notes in a row means Ollama is hung (each waits timeout_seconds),
 # not a bad note; fail the edition instead of publishing it undrafted.
 FAILED_DRAFTS_IN_A_ROW = 3
+# The same for «No me interesa» (D): each failed comparison counts as "no", so a hung Ollama
+# would take hours of timeouts before drafting even starts.
+DISMISS_ERRORS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
 # The first letter after any leading punctuation (¿, «, quotes); a leading digit or a Markdown
 # code span (`) means none.
@@ -393,11 +396,20 @@ def _dismissed(
     ]
     if not rejected:
         return found
-    out, asked = list(found), 0
-    for i, group in enumerate(groups):
+    centres = [_centroid([a.embedding for a in group if a.embedding]) for group in groups]
+    # A note embedded by another model (another length) can't be compared: skipped, never a
+    # ValueError that would fail every edition for 30 days.
+    size = next((len(c) for c in centres if c), None)
+    if other := sum(len(c) != size for _, c in rejected):
+        s = "" if other == 1 else "s"
+        log(f"  No me interesa: {other} rechazada{s} con otro modelo de embeddings, ignorada{s}")
+        rejected = [(note, c) for note, c in rejected if len(c) == size]
+        if not rejected:
+            return found
+    out, asked, failed = list(found), 0, 0
+    for i, (group, centre) in enumerate(zip(groups, centres, strict=True)):
         if out[i] is not None and not out[i].liked:
             continue
-        centre = _centroid([a.embedding for a in group if a.embedding])
         if centre is None:
             continue
         near = sorted(
@@ -413,7 +425,13 @@ def _dismissed(
                 raise
             except OllamaError as e:
                 log(f"  Sin comparar ({group[0].title}): {e}")
+                failed += 1
+                if failed == DISMISS_ERRORS_IN_A_ROW:
+                    raise OllamaUnavailableError(
+                        f"Ollama dejó de responder: {failed} comparaciones seguidas fallidas."
+                    ) from e
                 continue
+            failed = 0
             if same:
                 plain = note.headline.replace("*", "")
                 cut = textwrap.shorten(plain, DISMISS_LABEL_CHARS, placeholder="…")

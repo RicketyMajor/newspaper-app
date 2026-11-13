@@ -151,25 +151,29 @@ def test_without_interests_nothing_is_classified(config):
 
 
 class MatterLLM(TopicLLM):
-    """«Same matter» for the candidates that contain one of `same`; records every question."""
+    """«Same matter» for the candidates that contain one of `same`; records every question.
+    `errors`: what each question raises in turn (None: it answers), then `error` for the rest."""
 
-    def __init__(self, same=(), error=None):
+    def __init__(self, same=(), error=None, errors=()):
         super().__init__()
         self.same, self.matter_error, self.asked = set(same), error, []
+        self.errors = list(errors)
 
     def same_matter(self, rejected, candidate):
         self.asked.append((rejected, candidate))
-        if self.matter_error:
-            raise self.matter_error
+        error = self.errors.pop(0) if self.errors else self.matter_error
+        if error:
+            raise error
         return any(t in candidate for t in self.same)
 
 
-def dismiss_earlier(engine, headline, vector, dismissed_days_ago=1):
-    """An earlier edition's note, dismissed, made of one article with that embedding."""
-    old_day = TODAY - timedelta(days=10)
+def dismiss_earlier(engine, headline, vector, dismissed_days_ago=1, edition_days_ago=10):
+    """An earlier edition's note, dismissed, made of one article with that embedding. One per
+    edition: another dismissal needs another `edition_days_ago`."""
+    old_day = TODAY - timedelta(days=edition_days_ago)
     with Session(engine) as s, s.begin():
         article = Article(
-            url=f"https://old.test/{len(headline)}",
+            url=f"https://old.test/{edition_days_ago}",
             title=headline,
             source_name="CIPER",
             section="Chile",
@@ -207,7 +211,9 @@ def test_a_group_on_a_dismissed_matter_goes_down_labelled(config, engine):
 
 def test_a_no_from_gemma3_leaves_the_group_as_it_was(config, engine):
     dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
-    assert run(config, MatterLLM(same=())).status == "ready"
+    llm = MatterLLM(same=())
+    assert run(config, llm).status == "ready"
+    assert llm.asked  # it was asked, and its "no" stands
     with Session(engine) as s:
         interests = {n.interest for n in s.scalars(select(Note)) if n.dismissed_at is None}
         assert interests == {None}
@@ -243,12 +249,64 @@ def test_a_failed_comparison_leaves_the_group_and_is_logged(config, engine):
     llm = MatterLLM(same=[SENADO[0]], error=OllamaError("same_matter: JSON inválido"))
     assert run(config, llm, log=lines.append).status == "ready"
     assert any(line.startswith("  Sin comparar") for line in lines)
+    with Session(engine) as s:
+        senado = s.scalars(select(Note).where(Note.headline == f"Nota: {SENADO[0]}")).one()
+        assert senado.interest is None  # an error is no "yes": the group stays where it was
 
 
 def test_ollama_down_while_comparing_fails_the_edition(config, engine):
     dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0])
     llm = MatterLLM(error=OllamaUnavailableError("Ollama no responde"))
     assert run(config, llm).status == "failed"
+
+
+def test_three_failed_comparisons_in_a_row_fail_the_edition(config, engine):
+    # Ollama hung: each question waits out its timeout; hours of "no" would follow.
+    for days in (10, 11, 12):
+        dismiss_earlier(engine, f"Senado debate {days}", [1.0, 0.0], edition_days_ago=days)
+    llm = MatterLLM(error=OllamaError("Ollama: ReadTimeout"))
+    result = run(config, llm)
+    assert result.status == "failed" and "dejó de responder" in result.message
+    assert len(llm.asked) == 3
+
+
+def test_an_answer_resets_the_failed_comparisons(config, engine):
+    for days in range(10, 15):
+        dismiss_earlier(engine, f"Senado debate {days}", [1.0, 0.0], edition_days_ago=days)
+    timeout = OllamaError("Ollama: ReadTimeout")
+    llm = MatterLLM(errors=[timeout, timeout, None, timeout, timeout])  # None: a "no"
+    assert run(config, llm).status == "ready"
+    assert len(llm.asked) == 5
+
+
+def test_the_nearest_dismissal_is_asked_first_and_a_yes_ends_the_questions(config, engine):
+    # Cosines to the Senado group: 0.90 and 0.50. The farther one is the newer dismissal, the
+    # one active_dismissals gives first.
+    dismiss_earlier(engine, "Cerca", [0.911, -0.413], dismissed_days_ago=2)
+    dismiss_earlier(engine, "Lejos", [0.522, -0.853], edition_days_ago=11)
+    llm = MatterLLM(same=())
+    assert run(config, llm).status == "ready"
+    assert [rejected for rejected, _ in llm.asked] == ["Cerca\nBajada vieja", "Lejos\nBajada vieja"]
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm, force=True).status == "ready"
+    assert [rejected for rejected, _ in llm.asked] == ["Cerca\nBajada vieja"]
+
+
+def test_a_dismissal_below_the_floor_is_never_asked(config, engine):
+    dismiss_earlier(engine, "Casi", [0.463, -0.887])  # cosine 0.44 to the Senado group
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm).status == "ready"
+    assert llm.asked == []
+
+
+def test_a_dismissal_from_another_embedding_model_is_skipped_and_logged(config, engine):
+    dismiss_earlier(engine, "Otro modelo", [1.0, 0.0, 0.0])  # 3 dimensions; today's have 2
+    dismiss_earlier(engine, "Senado debate pensiones", [1.0, 0.0], edition_days_ago=11)
+    lines = []
+    llm = MatterLLM(same=[SENADO[0]])
+    assert run(config, llm, log=lines.append).status == "ready"
+    assert [rejected for rejected, _ in llm.asked] == ["Senado debate pensiones\nBajada vieja"]
+    assert "  No me interesa: 1 rechazada con otro modelo de embeddings, ignorada" in lines
 
 
 def test_generate_publishes_a_ready_edition(config, engine):
