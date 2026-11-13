@@ -101,6 +101,33 @@ async def test_note_shows_flags_after_toggling(config, seeded):
         assert str(sources.highlighted_child.query_one(Label).render()).startswith("◆ ")
 
 
+async def test_x_dismisses_the_open_note_and_undoes_it(config, engine, seeded):
+    app = NewspaperApp(config)
+    async with app.run_test() as pilot:
+        await pilot.press("l", "x")
+        assert "no te interesa" in app.screen.sub_title
+        assert app.screen.active_bindings["x"].binding.description == "No me interesa"
+        with Session(engine) as s:
+            assert s.get(Note, seeded["front"]).dismissed_at is not None
+        await pilot.press("x")
+        assert "no te interesa" not in app.screen.sub_title
+    with Session(engine) as s:
+        assert s.get(Note, seeded["front"]).dismissed_at is None
+
+
+async def test_x_marks_a_listed_note_but_not_a_source(config, engine, seeded):
+    app = NewspaperApp(config)
+    async with app.run_test() as pilot:
+        await pilot.press("x")
+        row = app.screen.query_one(ListView).highlighted_child
+        assert "no te interesa" in str(row.query_one(Label).render())
+        await pilot.press("l")
+        app.screen.query_one("#sources", ListView).focus()
+        await pilot.press("x")  # a source: nothing to dismiss, the note stays dismissed
+    with Session(engine) as s:
+        assert s.get(Note, seeded["front"]).is_dismissed
+
+
 async def test_o_on_a_listed_note_opens_its_main_source(config, seeded, monkeypatch):
     opened = []
     monkeypatch.setattr("newspaper.tui.app.webbrowser.open", opened.append)

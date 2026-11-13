@@ -51,6 +51,7 @@ def note_text(note: Note) -> Text:
         ("fuente única", note.single_source),
         ("basada en extracto", note.excerpt_only),
         ("sin redactar", not note.drafted),
+        ("no te interesa", note.is_dismissed),
         (interest_label(note), note.interest is not None),
     ) if on]  # fmt: skip
     style = "dim" if note.is_read else "bold"
@@ -97,6 +98,7 @@ class ReaderScreen(Screen):
         Binding("m", "flag('read')", "Leído"),
         Binding("f", "flag('favorite')", "Favorito"),
         Binding("s", "flag('saved')", "Guardar"),
+        Binding("x", "dismiss", "No me interesa"),
         Binding("o", "open_original", "Original"),
     ]
 
@@ -135,6 +137,16 @@ class ReaderScreen(Screen):
             value = queries.set_flag(s, target[0], target[1], flag)
             self.show_flags(s, *target)
         self.notify(f"{FLAG_LABELS[flag]}: {'sí' if value else 'no'}")
+
+    def action_dismiss(self) -> None:
+        """«No me interesa» (D): only a note, not a source."""
+        target = self.target()
+        if target is None or target[0] != "note":
+            return
+        with self.reader.session() as s, s.begin():
+            value = queries.set_dismissed(s, target[1])
+            self.show_flags(s, *target)
+        self.notify(f"No me interesa: {'sí' if value else 'no'}")
 
     def show_flags(self, s: Session, kind: str, ref: int) -> None:
         """Redraw the highlighted row so a toggled flag shows at once."""
@@ -267,9 +279,10 @@ class NoteScreen(ReaderScreen):
         note = s.get(Note, ref)
         day = long_date(note.edition.edition_date)
         unread = "" if note.is_read else " · no leída"
+        dismissed = " · no te interesa" if note.is_dismissed else ""
         label = interest_label(note)
         interest = f" · {label}" if label else ""
-        self.sub_title = f"{marks(note)}{note.section} · {day}{unread}{interest}"
+        self.sub_title = f"{marks(note)}{note.section} · {day}{unread}{dismissed}{interest}"
 
     def action_open_original(self) -> None:
         sources = self.query_one("#sources", ListView)
