@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 import tomllib
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -32,7 +32,7 @@ from .config.models import FeedConfig, NewspaperConfig
 from .edition.today import local_today, maybe_spawn_generate
 from .storage import queries
 from .storage.database import open_db
-from .storage.models import Edition, PushSubscription
+from .storage.models import Edition, PushSubscription, utcnow
 
 # ponytail: redirected output on Windows may be cp1252; replace unencodable chars, don't crash.
 for _stream in (sys.stdout, sys.stderr):
@@ -377,6 +377,17 @@ def _cinema(config: NewspaperConfig, s: Session) -> str:
     return "Cine: " + "; ".join(parts)
 
 
+def _dismissals(config: NewspaperConfig, s: Session) -> str | None:
+    """«No me interesa» still lowering things (D): how many, and when the newest one ends."""
+    active = queries.active_dismissals(s, utcnow())
+    if not active:
+        return None
+    ends = active[0].dismissed_at + timedelta(days=queries.DISMISS_DAYS)
+    day = ends.replace(tzinfo=UTC).astimezone(ZoneInfo(config.general.timezone))
+    word = "activa" if len(active) == 1 else "activas"
+    return f"No me interesa: {len(active)} {word} (la última, hasta el {day:%d-%m})"
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
@@ -407,5 +418,7 @@ def status(ctx: click.Context) -> None:
         if shown is not None:
             console.print(_funnel(config, shown), markup=False, highlight=False, soft_wrap=True)
         console.print(_subscriptions(config, s), markup=False, highlight=False)
+        if line := _dismissals(config, s):
+            console.print(line, markup=False, highlight=False)
         if config.cine.salas:
             console.print(_cinema(config, s), markup=False, highlight=False, soft_wrap=True)

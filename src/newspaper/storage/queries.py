@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from ..config.models import CINEMA_NAMES
-from .models import Article, CinemaVenue, Edition, EditionStatus, Note, Screening
+from .models import Article, CinemaVenue, Edition, EditionStatus, Note, Screening, utcnow
 
 Kind = Literal["note", "article"]
 Flag = Literal["read", "favorite", "saved"]
+
+DISMISS_DAYS = 30  # how long a «No me interesa» lowers what follows its matter (D)
 
 _MODELS: dict[str, type[Note] | type[Article]] = {"note": Note, "article": Article}
 _FLAGS = {"read": "is_read", "favorite": "is_favorite", "saved": "is_saved"}
@@ -124,12 +126,12 @@ def section_counts(s: Session, edition_id: int) -> list[tuple[str, int]]:
 def reading_order(notes: list[Note]) -> tuple[list[Note], list[Note]]:
     """(core, rest) of an edition's notes in rank order. The core is what the day's reading
     can finish: the front page, then the first note of each section outside it. The reading
-    path is core + rest."""
+    path is core + rest. A dismissed note («No me interesa») stays out of the core."""
     firsts: dict[str, Note] = {}
     for note in notes:
-        if not note.is_front:
+        if not note.is_front and not note.is_dismissed:
             firsts.setdefault(note.section, note)
-    core = [n for n in notes if n.is_front] + list(firsts.values())
+    core = [n for n in notes if n.is_front and not n.is_dismissed] + list(firsts.values())
     rest = [n for n in notes if n not in core]  # ponytail: O(n²) on ~40 notes
     return core, rest
 
@@ -199,3 +201,29 @@ def set_flag(s: Session, kind: Kind, obj_id: int, flag: Flag, value: bool | None
     new = (not getattr(obj, attr)) if value is None else value
     setattr(obj, attr, new)
     return new
+
+
+def set_dismissed(
+    s: Session, note_id: int, value: bool | None = None, now: datetime | None = None
+) -> bool:
+    """Dismiss a note («No me interesa»), undo it, or toggle when `value` is None. Setting it
+    again keeps the first time: the 30 days count from there. Returns the new value."""
+    note = s.get(Note, note_id)
+    if note is None:
+        raise LookupError(f"No existe note {note_id}")
+    new = not note.is_dismissed if value is None else value
+    if new != note.is_dismissed:
+        note.dismissed_at = (now or utcnow()) if new else None
+    return new
+
+
+def active_dismissals(s: Session, now: datetime) -> list[Note]:
+    """The notes dismissed in the last DISMISS_DAYS, newest first, with their articles."""
+    since = now - timedelta(days=DISMISS_DAYS)
+    stmt = (
+        select(Note)
+        .where(Note.dismissed_at >= since)
+        .options(selectinload(Note.articles))
+        .order_by(Note.dismissed_at.desc())
+    )
+    return list(s.scalars(stmt))

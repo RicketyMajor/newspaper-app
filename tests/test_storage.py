@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -73,6 +73,15 @@ def test_core_without_front_page_or_with_one_note():
     assert queries.reading_order([]) == ([], [])
 
 
+def test_a_dismissed_note_leaves_the_core():
+    notes = [_n(0, "Mundo", True), _n(1, "Chile"), _n(2, "Chile"), _n(3, "Mundo")]
+    for n in notes[:2]:
+        n.dismissed_at = datetime(2026, 11, 13)
+    core, rest = queries.reading_order(notes)
+    assert [n.id for n in core] == [2, 3]  # Chile's next note takes the first one's place
+    assert [n.id for n in rest] == [0, 1]
+
+
 def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):
     with Session(engine) as s, s.begin():
         assert queries.set_flag(s, "note", seeded["front"], "favorite") is True
@@ -95,6 +104,30 @@ def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):
         assert [a.id for a in articles] == [seeded["articles"][2], seeded["articles"][0]]
     with Session(engine) as s, pytest.raises(LookupError):
         queries.set_flag(s, "note", 999, "read")
+
+
+def test_dismissing_keeps_the_first_time_and_undoing_clears_it(engine, seeded):
+    first = datetime(2026, 11, 13, 12, 0)
+    with Session(engine) as s, s.begin():
+        assert queries.set_dismissed(s, seeded["world"], now=first) is True
+        later = first + timedelta(hours=1)
+        assert queries.set_dismissed(s, seeded["world"], True, now=later) is True
+        assert s.get(Note, seeded["world"]).dismissed_at == first  # setting again keeps it
+        assert queries.set_dismissed(s, seeded["world"]) is False  # no value: toggles
+        assert s.get(Note, seeded["world"]).dismissed_at is None
+    with Session(engine) as s, pytest.raises(LookupError):
+        queries.set_dismissed(s, 999)
+
+
+def test_active_dismissals_are_the_last_30_days(engine, seeded):
+    now = datetime(2026, 11, 13, 12, 0)
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).dismissed_at = now - timedelta(days=30, minutes=1)
+        s.get(Note, seeded["world"]).dismissed_at = now - timedelta(days=29)
+    with Session(engine) as s:
+        got = queries.active_dismissals(s, now)
+        assert [n.id for n in got] == [seeded["world"]]
+        assert got[0].articles  # loaded: generate needs their embeddings
 
 
 def test_search_ignores_accents_supports_prefixes_and_is_injection_safe(engine, seeded):
@@ -132,9 +165,11 @@ def test_open_db_adds_the_interest_columns_to_an_older_database(config):
 
     with engine.connect() as c:
         columns = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(notes)")}
-        row = c.exec_driver_sql("SELECT headline, interest, interest_liked FROM notes").one()
-    assert {"interest", "interest_liked"} <= columns
-    assert tuple(row) == ("Antigua", None, None)
+        row = c.exec_driver_sql(
+            "SELECT headline, interest, interest_liked, dismissed_at FROM notes"
+        ).one()
+    assert {"interest", "interest_liked", "dismissed_at"} <= columns
+    assert tuple(row) == ("Antigua", None, None, None)  # an old note is not dismissed
 
 
 def test_open_db_tolerates_a_column_another_process_just_added(config, monkeypatch):

@@ -121,6 +121,9 @@ class Note(ReadingState, Base):
     interest: Mapped[str | None] = mapped_column(Text)  # the reader's phrase the model picked
     interest_liked: Mapped[bool | None]  # True: "sí", False: "no"
     opened_at: Mapped[datetime | None]  # first opening; is_read stays for reaching the sources
+    # «No me interesa» (D, #7): when the reader dismissed it. For 30 days, what follows the same
+    # matter goes down (generate._dismissed); this note leaves the core.
+    dismissed_at: Mapped[datetime | None]
     # Its photo, kept on this PC (#18): the file in the images folder ("123.jpg") and the outlet
     # it came from. Both go back to None after 60 days.
     image: Mapped[str | None] = mapped_column(Text)
@@ -130,6 +133,10 @@ class Note(ReadingState, Base):
     articles: Mapped[list[Article]] = relationship(
         secondary=note_articles, order_by=Article.published_at
     )
+
+    @property
+    def is_dismissed(self) -> bool:
+        return self.dismissed_at is not None
 
 
 class PushSubscription(Base):

@@ -27,6 +27,7 @@ ADDED_COLUMNS = {
         "opened_at": "DATETIME",
         "image": "TEXT",
         "image_credit": "TEXT",
+        "dismissed_at": "DATETIME",
     },
     "editions": {
         "notified_at": "DATETIME",

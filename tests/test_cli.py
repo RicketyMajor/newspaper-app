@@ -1,7 +1,7 @@
 import logging
 import re
 from contextlib import contextmanager
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 import httpx
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from newspaper import cli, schedule
 from newspaper.cli import main
 from newspaper.edition.generate import GenerateResult
-from newspaper.storage.models import CinemaVenue, Note, PushSubscription
+from newspaper.storage.models import CinemaVenue, Note, PushSubscription, utcnow
 
 
 def write_config(tmp_path, db_path, extra=""):
@@ -245,6 +245,17 @@ def test_status_counts_undrafted_notes(tmp_path, engine, seeded):
 
     assert result.exit_code == 0, result.output
     assert "1 sin redactar (detalle en" in result.output
+
+
+def test_status_counts_active_dismissals(tmp_path, engine, seeded):
+    config = write_config(tmp_path, tmp_path / "newspaper.db")
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+    assert "No me interesa" not in result.output  # none yet: no line
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["world"]).dismissed_at = utcnow() - timedelta(days=1)
+    result = CliRunner().invoke(main, ["--config", str(config), "status"])
+    assert result.exit_code == 0, result.output
+    assert "No me interesa: 1 activa (la última, hasta el " in result.output
 
 
 def test_status_shows_the_funnel_and_the_subscriptions(tmp_path, engine, seeded):
