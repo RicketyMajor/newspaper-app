@@ -238,9 +238,9 @@ a.ear:hover { background: var(--panel); }
 .tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); }
 .tag.warn { padding: 0 4px; border: 1px solid var(--ink); color: var(--ink); }
 .outlets.multi { color: var(--ink); font-weight: 700; }
-/* Drawn ✓ and ★ (icon() in _macros.html) */
+/* Drawn ✓, ★ and × (icon() in _macros.html) */
 .ic { flex: none; width: 1em; height: 1em; vertical-align: -0.1em; }
-.ic.check { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ic:is(.check, .x) { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .ic.star { fill: currentColor; }
 .check { width: 0.75em; height: 0.75em; margin-right: 0.3em; vertical-align: 0; }
 .meta { font: 400 12px/1.4 var(--sans); color: var(--grey); }
@@ -450,6 +450,8 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 .note .done { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font: 700 12.5px/1.3 var(--sans); }
 .note .done[hidden] { display: none; }
 .note .done .ic { width: 14px; height: 14px; }
+/* «No me interesa» (D): greyed like a read card, never with opacity (AA). */
+.note.rechazada :is(h1, .dek, .body) { color: var(--grey); }
 .next { display: grid; gap: 6px; text-decoration: none; }
 .next .l { font: 700 11.5px/1.3 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
 .next .h { font-size: 21px; font-weight: 700; line-height: 1.15; }
@@ -478,6 +480,9 @@ p.next a { font: 600 13px/1 var(--sans); }
 .note > .toggles { margin: 14px var(--gutter) 30px; }
 .note > .toggles form { flex: 1; }
 .note > .toggles button { width: 100%; justify-content: center; }
+/* «No me interesa» (D) on a row of its own on a phone: four don't fit in one, and the row must
+   not reflow under the finger when its × appears. */
+.note > .toggles form[action$="flag=dismissed"] { flex-basis: 100%; }
 
 /* Pleno día: the edition closes under its own nameplate. */
 .noon-wrap { display: flex; flex-direction: column; min-height: 100svh; max-width: var(--column); margin: 0 auto; padding: 0 var(--gutter) 32px; }
@@ -705,6 +710,7 @@ html.oculta-leidas main:not(:has(:is(article.lead, .card, .first, .row):not(.don
   .note .head { padding-top: 24px; }
   .note h1 { font-size: 40px; }
   .note .head .dek { font-size: 20px; }
+  .note > .toggles form[action$="flag=dismissed"] { flex-basis: 0%; }
 }
 /* A wide desktop: the sections side by side, ruled like the front page's columns. */
 @media (min-width: 1000px) {

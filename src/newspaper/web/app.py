@@ -416,12 +416,18 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         s: DB,
         kind: Literal["n", "a"],
         obj_id: int,
-        flag: Literal["read", "favorite", "saved"],  # in the form's action URL, not its body
+        flag: Literal["read", "favorite", "saved", "dismissed"],  # in the action URL, not the body
         value: bool | None = None,  # set it (app.js marks a finished note); without it, toggle
     ):
         same_origin(request)
         try:
-            value = queries.set_flag(s, "note" if kind == "n" else "article", obj_id, flag, value)
+            if flag == "dismissed":  # «No me interesa» (D): notes only, it keeps a time
+                if kind != "n":
+                    raise HTTPException(422, "Solo una nota puede no interesar.")
+                value = queries.set_dismissed(s, obj_id, value)
+            else:
+                obj_kind = "note" if kind == "n" else "article"
+                value = queries.set_flag(s, obj_kind, obj_id, flag, value)
             s.commit()
         except LookupError as e:
             raise HTTPException(404, str(e)) from e
@@ -541,10 +547,14 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         # change with them. Only the front page's travel; a missing file would fail the copy.
         named = [(n.id, n.image) for n in notes if n.image]
         pics = f"|i:{hashlib.sha256(repr(named).encode()).hexdigest()[:12]}" if named else ""
+        # «No me interesa» (D) isn't a mark the base repaints: it moves the core and the note's
+        # caveats, so the pages are saved again.
+        dismissed = ",".join(sorted(f"n{n.id}" for n in notes if n.is_dismissed))
         front_photos = [f"/img/{n.id}" for n in core + rest if n.is_front and photo(n)]
         return {
             "revision": f"{stamp}|{v}|f:{members('is_favorite')};s:{members('is_saved')}{cine}"
-            + pics,
+            + pics
+            + (f"|d:{dismissed}" if dismissed else ""),
             "edition": stamp,
             "day": day,
             "pages": [f"/e/{day}"]

@@ -8,6 +8,7 @@
 {% if note.interest %}<span class="tag">{{ 'Te interesa' if note.interest_liked else 'Menos interés' }}: {{ note.interest }}</span>{% endif %}
 {% if note.excerpt_only %}<span class="tag">Solo extracto</span>{% endif %}
 {% if not note.drafted %}<span class="tag warn">Sin redactar</span>{% endif %}
+{% if note.is_dismissed %}<span class="tag">No te interesa</span>{% endif %}
 {%- endmacro %}
 
 {# ✓ and ★ drawn, not typed: the same weight in every font, and nothing for a screen reader to
@@ -15,6 +16,7 @@
 {% macro icon(name) -%}
 <svg class="ic {{ name }}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
 {%- if name == 'star' %}<path d="M8 1.6l1.95 4 4.4.62-3.2 3.08.77 4.37L8 11.6l-3.92 2.07.77-4.37-3.2-3.08 4.4-.62z"/>
+{%- elif name == 'x' %}<path d="M4 4l8 8M12 4l-8 8"/>
 {%- else %}<path d="M2.8 8.6l3.4 3.2 7-7.4"/>{% endif %}</svg>
 {%- endmacro %}
 
@@ -103,9 +105,11 @@
 <a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
 {%- endmacro %}
 
-{# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it). #}
+{# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it).
+   «No me interesa» (D) goes on notes only; inside .toggles, the copy without the PC disables it
+   like the others (applyMarks). #}
 {% set FLAGS = {
-  'n': [('read', 'is_read', 'Leída', 'check'), ('favorite', 'is_favorite', 'Favorita', 'star'), ('saved', 'is_saved', 'Guardar', 'check')],
+  'n': [('read', 'is_read', 'Leída', 'check'), ('favorite', 'is_favorite', 'Favorita', 'star'), ('saved', 'is_saved', 'Guardar', 'check'), ('dismissed', 'is_dismissed', 'No me interesa', 'x')],
   'a': [('read', 'is_read', 'Leído', 'check'), ('favorite', 'is_favorite', 'Favorito', 'star'), ('saved', 'is_saved', 'Guardar', 'check')],
 } %}
 

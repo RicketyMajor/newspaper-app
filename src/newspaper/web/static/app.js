@@ -83,6 +83,9 @@ document.addEventListener("submit", async (event) => {
     const own = form.closest("article.note > .toggles");
     if (!value && own) own.parentElement.querySelector(".done")?.setAttribute("hidden", "");
   }
+  if (new URL(form.action).searchParams.get("flag") === "dismissed") {
+    form.closest("article.note")?.classList.toggle("rechazada", value);  // greyed at once
+  }
   live.textContent = `${button.lastChild.textContent.trim()}: ${value ? "sí" : "no"}`;
 });
 
@@ -418,7 +421,8 @@ function applyMarks(base) {
     if (!kind) continue;
     const on = has(kind, id, letters[flag]);
     const button = form.querySelector("button");
-    button.setAttribute("aria-pressed", String(on));
+    // «No me interesa» isn't in the base: the saved page's own state stands (the revision).
+    if (letters[flag]) button.setAttribute("aria-pressed", String(on));
     button.setAttribute("aria-disabled", "true");
     button.setAttribute("aria-describedby", "espera");
     if (kind === "a" && flag === "read") form.closest("li")?.classList.toggle("is-read", on);

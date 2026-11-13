@@ -154,7 +154,8 @@ def test_marks_are_drawn_and_the_words_stay(client, engine, seeded):
     page = client.get(f"/n/{seeded['front']}").text
     toggles = page[page.rindex('<div class="toggles">') :]
     buttons = re.findall(r"<button aria-pressed=\"\w+\">(.*?)</button>", toggles, re.S)
-    assert [re.sub(r"<svg.*?</svg>", "", b) for b in buttons] == ["Leída", "Favorita", "Guardar"]
+    labels = [re.sub(r"<svg.*?</svg>", "", b) for b in buttons]
+    assert labels == ["Leída", "Favorita", "Guardar", "No me interesa"]
     assert all('aria-hidden="true"' in b for b in buttons)
     for html in (page, client.get("/").text):
         assert "★" not in html and "✓" not in html
@@ -310,6 +311,33 @@ def test_value_sets_a_flag_instead_of_toggling(client, seeded):
         assert client.post(url, headers={"Accept": "application/json"}).json() == {"value": True}
     off = f"/n/{seeded['front']}/estado?flag=read&value=false"
     assert client.post(off, headers={"Accept": "application/json"}).json() == {"value": False}
+
+
+def test_a_note_can_be_dismissed_and_undone(client, engine, seeded):
+    url = f"/n/{seeded['world']}/estado?flag=dismissed"
+    json_ = {"Accept": "application/json"}
+    assert client.post(url, headers=json_).json() == {"value": True}
+    with Session(engine) as s:
+        assert s.get(Note, seeded["world"]).dismissed_at is not None
+    page = client.get(f"/n/{seeded['world']}").text
+    assert 'class="note rechazada"' in page
+    assert "<strong>No te interesa:</strong>" in page
+    assert f'action="/n/{seeded["world"]}/estado?flag=dismissed"' in page
+    assert client.post(url, headers=json_).json() == {"value": False}
+    assert "rechazada" not in client.get(f"/n/{seeded['world']}").text
+
+
+def test_only_a_note_can_be_dismissed(client, seeded):
+    assert client.post(f"/a/{seeded['articles'][0]}/estado?flag=dismissed").status_code == 422
+
+
+def test_a_note_lowered_by_d_says_why(client, engine, seeded):
+    with Session(engine) as s, s.begin():
+        note = s.get(Note, seeded["world"])
+        note.interest, note.interest_liked = "parecida a «Senado debate pensiones»", False
+    page = client.get(f"/n/{seeded['world']}").text
+    assert "sigue un asunto que marcaste «No me interesa»" in page
+    assert "de tu lista de intereses" not in page
 
 
 def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):

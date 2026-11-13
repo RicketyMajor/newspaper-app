@@ -66,6 +66,14 @@ def test_a_read_mark_keeps_the_revision_and_guardado_changes_it(client, engine, 
     assert client.get("/sin-pc").json()["revision"] != first
 
 
+def test_a_dismissal_changes_the_revision(client, engine, seeded):
+    """«No me interesa» changes the pages (the core, the note's caveat), not just a mark."""
+    first = client.get("/sin-pc").json()["revision"]
+    with Session(engine) as s, s.begin():
+        s.get(Note, seeded["front"]).dismissed_at = utcnow()
+    assert client.get("/sin-pc").json()["revision"] != first
+
+
 def test_a_forced_run_and_an_upgrade_change_the_revision(client, engine, seeded, monkeypatch):
     def revision(finished=None):
         if finished:
