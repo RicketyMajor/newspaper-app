@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -167,12 +167,17 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             return f"las {local:%H:%M}"
         return f"el {local.day}/{local.month} a las {local:%H:%M}"
 
+    def day_month(moment: datetime) -> str:
+        """A naive UTC moment's day where the reader is, as `status` says it: «12-12»."""
+        return f"{moment.replace(tzinfo=UTC).astimezone(zone):%d-%m}"
+
     def starts(day: date, hhmm: str) -> str:
         """A show's start as an instant with the cinema's offset (#29): app.js compares it with
         the device's clock, wherever the device is."""
         return datetime.combine(day, time.fromisoformat(hhmm), zone).isoformat()
 
     templates.env.filters["since"] = since
+    templates.env.filters["day_month"] = day_month
     templates.env.globals["starts"] = starts
     templates.env.globals["cine"] = bool(config.cine.salas)  # the tab (#29)
     # The dateline's place: the time zone's city («America/Santiago» → Santiago); none for UTC.
@@ -361,12 +366,15 @@ def create_app(config: NewspaperConfig) -> FastAPI:
             next_url = f"/fin/{found.edition.edition_date}"
         else:
             next_url = f"/n/{next_note.id}" if next_note else None
+        # «No me interesa» (D): until when it lowers what follows this matter; None once past.
+        ends = found.dismissed_at and found.dismissed_at + timedelta(days=queries.DISMISS_DAYS)
+        lowering = ends if ends and ends >= utcnow() else None
         response = render(
             request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
             prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
             next_note=next_note, next_label=label(i + 1),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
-            core_ids=[n.id for n in core],
+            core_ids=[n.id for n in core], lowering_until=lowering,
         )  # fmt: skip
         # Its edition too: a note reached from search or a bookmark opened it, never Today.
         return opened(response, request, found, found.edition)

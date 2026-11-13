@@ -142,6 +142,21 @@ def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one(client, e
     assert "Cumbre climática" in lines.split("</section>")[0]  # the dismissed one, a line
 
 
+def test_a_dismissed_note_says_so_in_todays_rows_and_guardados_lines(client, engine, seeded):
+    tag = '<span class="tag">No te interesa</span>'
+    with Session(engine) as s, s.begin():
+        world = s.get(Note, seeded["world"])
+        world.dismissed_at, world.is_saved = utcnow(), True
+        world.edition.notes.append(
+            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
+                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
+        )  # fmt: skip
+    row = client.get("/").text.split('<a class="row')[1].split("</a>")[0]
+    assert "Cumbre climática" in row and tag in row
+    line = client.get("/guardado").text.split('<a class="line')[1].split("</a>")[0]
+    assert "Cumbre climática" in line and tag in line
+
+
 def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seeded):
     page = client.get("/").text
     assert "CIPER y Cooperativa" in page
@@ -350,6 +365,25 @@ def test_a_note_can_be_dismissed_and_undone(client, engine, seeded):
 def test_only_a_note_that_exists_can_be_dismissed(client, seeded):
     assert client.post(f"/a/{seeded['articles'][0]}/estado?flag=dismissed").status_code == 422
     assert client.post("/n/999999/estado?flag=dismissed").status_code == 404
+
+
+def test_the_dismissal_says_until_when_it_lowers_and_then_that_it_no_longer_does(
+    client, engine, seeded, monkeypatch
+):
+    monkeypatch.setattr("newspaper.web.app.utcnow", lambda: datetime(2026, 11, 13, 12))
+    with Session(engine) as s, s.begin():
+        # 23:00 on the 12th in Santiago; it ends 30 days later, still the 12th there.
+        s.get(Note, seeded["world"]).dismissed_at = datetime(2026, 11, 13, 2)
+    page = client.get(f"/n/{seeded['world']}").text
+    assert (
+        "<strong>No te interesa:</strong> hasta el 12-12, lo que siga este asunto irá al final de"
+        " su sección y nunca a portada. Para deshacerlo, pulsa otra vez «No me interesa»."
+    ) in page
+    assert "30 días" not in page
+    monkeypatch.setattr("newspaper.web.app.utcnow", lambda: datetime(2026, 12, 13, 3))
+    page = client.get(f"/n/{seeded['world']}").text  # from the Archive, later
+    assert "<strong>No te interesa</strong> (lo marcaste el 12-11): ya no baja nada." in page
+    assert "hasta el" not in page
 
 
 def test_a_note_lowered_by_d_says_why(client, engine, seeded):

@@ -23,7 +23,8 @@
     <p class="meta">{{ note.read_minutes }}&nbsp;min de lectura · {{ names|length }}&nbsp;{{ 'medio' if names|length == 1 else 'medios' }}{% if note.is_favorite %} · {{ icon('star') }}<span class="sr-only">Favorita</span>{% endif %}</p>
     {% if note.single_source or note.excerpt_only or not note.drafted or note.interest or note.is_dismissed %}
     <ul class="caveats">
-      {% if note.is_dismissed %}<li><strong>No te interesa:</strong> durante 30 días, lo que siga este asunto irá al final de su sección y nunca a portada. Para deshacerlo, pulsa otra vez «No me interesa».</li>{% endif %}
+      {% if lowering_until %}<li><strong>No te interesa:</strong> hasta el {{ lowering_until|day_month }}, lo que siga este asunto irá al final de su sección y nunca a portada. Para deshacerlo, pulsa otra vez «No me interesa».</li>
+      {%- elif note.is_dismissed %}<li><strong>No te interesa</strong> (lo marcaste el {{ note.dismissed_at|day_month }}): ya no baja nada.</li>{% endif %}
       {% if note.single_source %}<li><strong>Fuente única:</strong> solo un medio cubrió este hecho, así que no hay contraste entre fuentes.</li>{% endif %}
       {% if note.excerpt_only %}<li><strong>Solo extracto:</strong> no se pudo leer el texto completo; la nota se basa en el resumen del feed.</li>{% endif %}
       {% if not note.drafted %}<li><strong>Sin redactar:</strong> el modelo local no pudo redactarla; se muestran los extractos originales.</li>{% endif %}

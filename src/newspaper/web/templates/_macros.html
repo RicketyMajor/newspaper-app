@@ -94,11 +94,11 @@
 
 {# The rest of a section: a line with a square thumbnail at the right (none without a photo). #}
 {% macro row(note) %}
-<a class="row{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="row-text"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min</small></span>{{ photo(note, 'thumb') }}</a>
+<a class="row{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="row-text"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}{% if note.is_dismissed %} <span class="tag">No te interesa</span>{% endif %}<small>{{ outlets(note) }} · {{ note.read_minutes }}&nbsp;min</small></span>{{ photo(note, 'thumb') }}</a>
 {% endmacro %}
 
 {% macro line(note) %}
-<a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
+<a class="line{% if note.is_read %} done{% endif %}" href="/n/{{ note.id }}"><span class="h" style="view-transition-name: h-{{ note.id }}">{{ read_mark(note) }}{{ note.headline|inline|safe }}</span>{% if not note.drafted %} <span class="tag warn">Sin redactar</span>{% endif %}{% if note.is_dismissed %} <span class="tag">No te interesa</span>{% endif %}<small>{{ note.read_minutes }}&nbsp;min</small></a>
 {% endmacro %}
 
 {% macro original(a) -%}

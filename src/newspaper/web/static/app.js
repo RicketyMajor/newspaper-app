@@ -75,6 +75,16 @@ document.addEventListener("submit", async (event) => {
     return;
   }
   const { value } = await res.json();
+  if (new URL(form.action).searchParams.get("flag") === "dismissed") {
+    // «No me interesa» moves the note in or out of the core: the server redraws its caveat,
+    // «Esencial n de N», data-in-core and the «Leída · Esenciales» line. The browser keeps the
+    // scroll; the entry's state tells the reloaded page why it came back (below), and whether
+    // the press came from the keyboard (the focus ring then stays in sight).
+    const teclado = button.matches(":focus-visible");
+    history.replaceState({ ...history.state, rechazo: value, teclado }, "");
+    location.reload();
+    return;
+  }
   button.setAttribute("aria-pressed", String(value));
   if (new URL(form.action).searchParams.get("flag") === "read") {
     form.closest("li")?.classList.toggle("is-read", value);  // an original's title styling
@@ -82,9 +92,6 @@ document.addEventListener("submit", async (event) => {
     // Only the note's own toggle: an original's sits in the same article.
     const own = form.closest("article.note > .toggles");
     if (!value && own) own.parentElement.querySelector(".done")?.setAttribute("hidden", "");
-  }
-  if (new URL(form.action).searchParams.get("flag") === "dismissed") {
-    form.closest("article.note")?.classList.toggle("rechazada", value);  // greyed at once
   }
   live.textContent = `${button.lastChild.textContent.trim()}: ${value ? "sí" : "no"}`;
 });
@@ -96,12 +103,26 @@ document.addEventListener("click", (event) => {
   item?.querySelector('form[action$="flag=read"] button')?.setAttribute("aria-pressed", "true");
 });
 
+const note = document.querySelector("article.note");
+// The reload «No me interesa» asked for: the focus back on its button and the change read out,
+// as any toggle. Its read mark isn't armed again (below): the sources were passed on the way
+// down to the button, and the restored scroll would undo a «Leída» taken back by hand.
+const redrawn = note ? history.state?.rechazo : undefined;
+if (redrawn !== undefined) {
+  const { rechazo, teclado, ...rest } = history.state;
+  history.replaceState(rest, "");
+  const button = note.querySelector(':scope > .toggles form[action$="flag=dismissed"] button');
+  button.focus({ preventScroll: true, focusVisible: teclado });
+  const said = `${button.lastChild.textContent.trim()}: ${redrawn ? "sí" : "no"}`;
+  // A status filled before the first frame isn't read out.
+  requestAnimationFrame(() => requestAnimationFrame(() => (live.textContent = said)));
+}
+
 // A note counts as read once its sources come into view, after the reader has scrolled; a note
 // that fits on the screen, as soon as they're in view, since there's nothing to scroll. Opening
 // a long one doesn't. Touching "Leída" by hand wins for the rest of the visit.
-const note = document.querySelector("article.note");
 const readForm = note?.querySelector(':scope > .toggles form[action$="flag=read"]');
-if (readForm && "IntersectionObserver" in window && !copy) {
+if (readForm && "IntersectionObserver" in window && !copy && redrawn === undefined) {
   let touched = false;
   readForm.addEventListener("submit", () => (touched = true));
   const mark = new IntersectionObserver(async (entries) => {
