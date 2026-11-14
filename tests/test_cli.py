@@ -368,9 +368,12 @@ def test_web_serves_awake_on_localhost_and_logs_errors_to_a_file(tmp_path, monke
     assert (calls.recovered, calls.opened, calls.awake) == (1, [], ["on", "off"])
     assert calls.needed is app.state.awake  # awake only after an edition or a visit
     assert app.state.recheck is calls.recheck  # and a visit asks again at once
-    # and the end of a hold may sleep a PC nobody touched; our wake is the edition's hour
+    # and the end of a hold may sleep a PC nobody touched; our wake is the edition's hour. Its
+    # retry's wake is ours too, but its hour doesn't block sleeping: a normal day's hold ends
+    # ~06:43, inside 06:30's window, and the PC would have stayed up.
     assert calls.sleep.func is schedule.sleep_if_unattended
     assert calls.sleep.args == ([time(6)],)
+    assert calls.sleep.keywords == {"retries": [time(6, 30)]}
     log = (tmp_path / "data" / "web.log").read_text(encoding="utf-8")
     assert "uvicorn.error: Exception in ASGI application" in log
     assert "newspaper.schedule: Suelto el PC: …: lo duermo" in log  # each decision, to calibrate

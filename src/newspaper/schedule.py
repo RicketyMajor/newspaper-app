@@ -28,6 +28,13 @@ def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def edition_times(config: NewspaperConfig) -> list[time]:
+    """The edition task's triggers: on the hour, and half an hour later in case the first was
+    missed (2026-11-14: the wake came 7 min late and Windows never caught the run up). A run that
+    finds the edition ready or in progress just leaves."""
+    return [time(config.general.edition_hour), time(config.general.edition_hour, 30)]
+
+
 def install_script(config: NewspaperConfig) -> str:
     # pythonw runs without flashing a console window at dawn.
     pythonw = Path(sys.executable).with_name("pythonw.exe")
@@ -35,9 +42,8 @@ def install_script(config: NewspaperConfig) -> str:
     base = "-m newspaper"
     if config.path:
         base += f' --config "{config.path.resolve()}"'
-    # ponytail: the trigger uses the machine's clock, not general.timezone; same thing on a
+    # ponytail: the triggers use the machine's clock, not general.timezone; same thing on a
     # personal PC. Convert the hour if someone runs the PC in another timezone.
-    at = f"{config.general.edition_hour:02d}:00"
 
     def register(
         name: str, command: str, triggers: list[str], minutes: int, about: str, wake: bool = False
@@ -85,7 +91,7 @@ def install_script(config: NewspaperConfig) -> str:
             register(
                 TASK_NAME,
                 "generate",
-                [f"-Daily -At '{at}'"],
+                [f"-Daily -At '{t:%H:%M}'" for t in edition_times(config)],
                 180,
                 "Prepara la edición diaria de Newspaper",
                 # The PC usually sleeps at night: without this the edition waits until it wakes.
@@ -148,9 +154,11 @@ WAKE_GRACE = timedelta(seconds=15)
 # the web saw it used: two inputs more than USE_GAP apart past the grace.
 AWAY = timedelta(minutes=20)
 USE_GAP = timedelta(minutes=1)
-# Our wakes came at 06:00:23 … 06:02:35; and in this window after a scheduled time our own job may
-# be starting (generate claims its edition ~10 s in), so nothing is slept then.
-SCHEDULED_WAKE_WINDOW = timedelta(minutes=10)
+# Our wakes come late by ~0.6-0.77 % of the sleep (the firmware alarm runs slow): 06:00:23 …
+# 06:03 after a night, 06:07:47 after 17 h (2026-11-14); 15 min covers ~32 h. And in this window
+# after a scheduled time our own job may be starting (generate claims its edition ~10 s in), so
+# nothing is slept then.
+SCHEDULED_WAKE_WINDOW = timedelta(minutes=15)
 # The wake can also come just before its time (07:29:57 for 07:30, 2026-10-26): still ours.
 WAKE_LEAD = timedelta(seconds=30)
 
@@ -272,6 +280,8 @@ def sleep_if_unattended(
     needed: Callable[[], bool],
     visited: Callable[[], bool],
     now: Callable[[], datetime] = datetime.now,
+    *,
+    retries: list[time],
 ) -> None:
     """Sleep the PC if nobody touched it since `wake` (after one of ours, also if nobody touched
     it in AWAY and it wasn't `used`) and nothing needs it any more: called by keep_awake, still
@@ -295,7 +305,9 @@ def sleep_if_unattended(
         log.info("Suelto el PC: datos dudosos (despertar %s), no lo duermo", wake)
         return
     woke_at = _clock(wake, tick, moment)
-    grace = wake_grace(woke_at, moment, scheduled)
+    # A retry's wake is ours too; its hour isn't in `scheduled`, or a normal day's hold, ending
+    # ~06:43, would never sleep the PC (the retry finds the edition ready and leaves).
+    grace = wake_grace(woke_at, moment, scheduled + retries)
     ours = grace == SCHEDULED_WAKE_GRACE
     idle = timedelta(milliseconds=tick - wake // 10_000) - after  # clamped like `after`
     away = ours and not used and idle >= AWAY

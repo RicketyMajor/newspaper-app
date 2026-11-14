@@ -36,6 +36,15 @@ def test_install_script_registers_daily_task_with_catch_up(config, tmp_path):
     assert "Unregister-ScheduledTask -TaskName 'Newspaper fetch'" in schedule.uninstall_script()
 
 
+def test_the_edition_task_tries_again_half_an_hour_later(config):
+    # 2026-11-14: after 17 h asleep the 06:00 alarm came at 06:07:47 and the missed run was never
+    # caught up, though the PC stayed awake. A second trigger runs while it is awake.
+    assert schedule.edition_times(config) == [time(6), time(6, 30)]
+    edition = schedule.install_script(config).split("-TaskName 'Newspaper'")[0]
+    assert "(New-ScheduledTaskTrigger -Daily -At '06:00')" in edition
+    assert "(New-ScheduledTaskTrigger -Daily -At '06:30')" in edition
+
+
 def test_only_the_edition_task_wakes_the_pc(config):
     edition, fetch = schedule.install_script(config).split("-TaskName 'Newspaper'")
     assert "-WakeToRun" in edition
@@ -435,8 +444,14 @@ def test_our_wake_may_come_a_few_seconds_before_its_time():
     assert schedule.wake_grace(woke, woke, SIX) == schedule.SCHEDULED_WAKE_GRACE
 
 
+def test_a_wake_late_after_a_long_sleep_is_still_ours():
+    # The alarm runs ~0.77 % slow: 17 h asleep woke the PC at 06:07:47 (2026-11-14).
+    woke = datetime(2026, 11, 14, 6, 14)
+    assert schedule.wake_grace(woke, woke, SIX) == schedule.SCHEDULED_WAKE_GRACE
+
+
 def test_any_other_wake_forgives_only_the_key_that_woke_it():
-    late, early = datetime(2026, 10, 23, 6, 12), datetime(2026, 10, 23, 5, 59)
+    late, early = datetime(2026, 10, 23, 6, 16), datetime(2026, 10, 23, 5, 59)
     for woke in (datetime(2026, 10, 23, 23, 17, 31), late, early):
         assert schedule.wake_grace(woke, woke + timedelta(hours=1), SIX) == schedule.WAKE_GRACE
     # yesterday's 06:00, never slept since: today's job may be starting, it's no longer ours
@@ -477,7 +492,10 @@ def sleep_if_unattended(
 
     now = kw.get("now", AFTER_WAKE)
     fresh, used = kw.get("fresh", True), kw.get("used", False)
-    schedule.sleep_if_unattended(SIX, WOKE, fresh, used, still_needed, was_visited, lambda: now)
+    retries = kw.get("retries", [])
+    schedule.sleep_if_unattended(
+        SIX, WOKE, fresh, used, still_needed, was_visited, lambda: now, retries=retries
+    )
     assert order[0] == "needed"  # the slow question first: the snapshot is the last thing read
     assert not slept or order[-1] == "visited"  # and a visit, right before sleeping
     return bool(slept)
@@ -550,10 +568,21 @@ def test_an_input_stamped_after_the_tick_is_someone_now(monkeypatch, caplog):
 
 @pytest.mark.parametrize("used", [False, True])
 def test_our_wake_still_forgives_its_first_minutes(monkeypatch, caplog, used):
-    # #22's rule stands alone: a hold that ends 2 min after a 06:09 wake, outside the job's window.
+    # #22's rule stands alone: a hold that ends 2 min after a 06:14 wake, outside the job's window.
     snapshot = (1_000_000 + 120_000, 1_001_000, WOKE)
-    now = datetime(2026, 10, 24, 6, 11)
+    now = datetime(2026, 10, 24, 6, 16)
     assert sleep_if_unattended(monkeypatch, caplog, snapshot, now=now, used=used)
+
+
+def test_the_retrys_wake_is_ours_but_its_hour_doesnt_block_sleeping(monkeypatch, caplog):
+    # A fast 06:00 failure, the PC slept ~06:20, the 06:30 retry woke it: an input at +60 s is
+    # the usual phantom (the session unlocks itself), not someone. And 06:32 is no job's hour.
+    snapshot = (1_000_000 + 120_000, 1_060_000, WOKE)  # woke 2 min ago, input at +60 s
+    now = datetime(2026, 11, 15, 6, 32, 4)
+    assert not sleep_if_unattended(monkeypatch, caplog, snapshot, now=now)
+    caplog.clear()
+    assert sleep_if_unattended(monkeypatch, caplog, snapshot, now=now, retries=[time(6, 30)])
+    assert "despertó 06:30:04 (programado)" in caplog.text
 
 
 def test_twenty_minutes_away_is_only_for_our_wakes(monkeypatch, caplog):
@@ -586,7 +615,7 @@ def test_a_failed_sleep_is_logged(monkeypatch, caplog):
 
     sleep_if_unattended(monkeypatch, caplog, (1_100_000, 1_001_000, WOKE))  # the fakes
     monkeypatch.setattr(schedule, "suspend", suspend)
-    schedule.sleep_if_unattended([], WOKE, True, False, bool, bool, lambda: AFTER_WAKE)
+    schedule.sleep_if_unattended([], WOKE, True, False, bool, bool, lambda: AFTER_WAKE, retries=[])
     assert "SetSuspendState falló" in caplog.text
 
 

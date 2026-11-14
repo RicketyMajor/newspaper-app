@@ -656,10 +656,12 @@ def serve(config: NewspaperConfig, port: int, open_browser: bool = True) -> None
     # notice and while reading, not all day. And when that ends with nobody at the PC, the web
     # sleeps it: Windows may take the 06:00 wake for someone there (#22). The notice task's wake
     # is ours too, so its phantom inputs don't count while `notify --pendiente` retries.
-    scheduled = [time(config.general.edition_hour)]
+    # The retry at half past (edition_times) wakes it too, but goes apart: see sleep_if_unattended.
+    first, *retries = schedule.edition_times(config)
+    scheduled = [first]
     if config.general.notice_time:
         scheduled.append(time.fromisoformat(config.general.notice_time))
-    sleep = functools.partial(schedule.sleep_if_unattended, scheduled)
+    sleep = functools.partial(schedule.sleep_if_unattended, scheduled, retries=retries)
     with schedule.keep_awake(app.state.awake, sleep) as app.state.recheck:
         # log_config=None: uvicorn's default calls sys.stdout.isatty(); pythonw has None.
         uvicorn.run(app, host="127.0.0.1", port=port, log_config=None)
