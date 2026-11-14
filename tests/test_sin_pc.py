@@ -66,15 +66,8 @@ def test_a_read_mark_keeps_the_revision_and_guardado_changes_it(client, engine, 
     assert client.get("/sin-pc").json()["revision"] != first
 
 
-def test_a_dismissal_changes_the_revision(client, engine, seeded):
+def test_a_dismissal_changes_the_revision_and_undoing_it_gives_it_back(client, seeded):
     """«No me interesa» changes the pages (the core, the note's caveat), not just a mark."""
-    first = client.get("/sin-pc").json()["revision"]
-    with Session(engine) as s, s.begin():
-        s.get(Note, seeded["front"]).dismissed_at = utcnow()
-    assert client.get("/sin-pc").json()["revision"] != first
-
-
-def test_undoing_a_dismissal_gives_back_the_revision_the_copy_has(client, seeded):
     first = client.get("/sin-pc").json()["revision"]
     toggle = f"/n/{seeded['front']}/estado?flag=dismissed"
     json_ = {"Accept": "application/json", **SAME}

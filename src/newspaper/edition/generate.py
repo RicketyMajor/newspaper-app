@@ -26,7 +26,7 @@ from ..config.models import InterestsConfig, NewspaperConfig
 from ..ingestion.cine import refresh_cine
 from ..ingestion.extract import extract_many
 from ..ingestion.rss import fetch_feed, make_client
-from ..processing.cluster import cluster
+from ..processing.cluster import cluster, unit
 from ..processing.select import Interest, Selected, select_groups
 from ..storage import queries
 from ..storage.database import open_db
@@ -40,12 +40,10 @@ EMBED_BATCH = 32
 CLASSIFY_CHARS = 300  # of the group's first article, after its titles
 DISMISS_FLOOR = 0.45  # bge-m3 cosine; the 12 Nov calibration had sequels at 0.47-0.56
 DISMISS_LABEL_CHARS = 60
-# ponytail: this many failed notes in a row means Ollama is hung (each waits timeout_seconds),
-# not a bad note; fail the edition instead of publishing it undrafted.
-FAILED_DRAFTS_IN_A_ROW = 3
-# The same for «No me interesa» (D): each failed comparison counts as "no", so a hung Ollama
-# would take hours of timeouts before drafting even starts.
-DISMISS_ERRORS_IN_A_ROW = 3
+# ponytail: this many failed calls in a row means Ollama is hung (each waits timeout_seconds),
+# not a bad note: fail the edition instead of publishing it undrafted. «No me interesa» (D)
+# too: each failed comparison counts as "no", so it would take hours before drafting starts.
+FAILED_CALLS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
 # The first letter after any leading punctuation (¿, «, quotes); a leading digit or a Markdown
 # code span (`) means none.
@@ -322,7 +320,7 @@ def _build_notes(
         log(f"Redactando nota {n}/{len(selected)}…")
         drafts.append(_draft(llm, sel, config.general.language, log))
         failed_in_a_row = 0 if drafts[-1].drafted else failed_in_a_row + 1
-        if failed_in_a_row == FAILED_DRAFTS_IN_A_ROW:
+        if failed_in_a_row == FAILED_CALLS_IN_A_ROW:
             raise OllamaUnavailableError(
                 f"Ollama dejó de responder: {failed_in_a_row} notas seguidas sin redactar."
             )
@@ -366,17 +364,10 @@ def _classify(
 
 
 def _centroid(blobs: list[bytes]) -> list[float] | None:
-    """The mean of the unit vectors, unit again; None without any."""
-    units = []
-    for blob in blobs:
-        v = array("f", blob)
-        norm = math.sqrt(math.sumprod(v, v)) or 1.0
-        units.append([x / norm for x in v])
-    if not units:
+    """The sum of the unit vectors, unit again (their mean, for a cosine); None without any."""
+    if not blobs:
         return None
-    mean = [sum(xs) / len(units) for xs in zip(*units, strict=True)]
-    norm = math.sqrt(math.sumprod(mean, mean)) or 1.0
-    return [x / norm for x in mean]
+    return unit([sum(xs) for xs in zip(*(unit(array("f", b)) for b in blobs), strict=True)])
 
 
 def _dismissed(
@@ -396,21 +387,18 @@ def _dismissed(
     ]
     if not rejected:
         return found
-    centres = [_centroid([a.embedding for a in group if a.embedding]) for group in groups]
+    # Every pending article was embedded before grouping: each group has its centre.
+    centres = [_centroid([a.embedding for a in group]) for group in groups]
     # A note embedded by another model (another length) can't be compared: skipped, never a
     # ValueError that would fail every edition for 30 days.
-    size = next((len(c) for c in centres if c), None)
+    size = len(centres[0])
     if other := sum(len(c) != size for _, c in rejected):
         s = "" if other == 1 else "s"
         log(f"  No me interesa: {other} rechazada{s} con otro modelo de embeddings, ignorada{s}")
         rejected = [(note, c) for note, c in rejected if len(c) == size]
-        if not rejected:
-            return found
     out, asked, failed = list(found), 0, 0
     for i, (group, centre) in enumerate(zip(groups, centres, strict=True)):
         if out[i] is not None and not out[i].liked:
-            continue
-        if centre is None:
             continue
         near = sorted(
             ((math.sumprod(centre, c), note) for note, c in rejected), key=lambda p: -p[0]
@@ -426,7 +414,7 @@ def _dismissed(
             except OllamaError as e:
                 log(f"  Sin comparar ({group[0].title}): {e}")
                 failed += 1
-                if failed == DISMISS_ERRORS_IN_A_ROW:
+                if failed == FAILED_CALLS_IN_A_ROW:
                     raise OllamaUnavailableError(
                         f"Ollama dejó de responder: {failed} comparaciones seguidas fallidas."
                     ) from e

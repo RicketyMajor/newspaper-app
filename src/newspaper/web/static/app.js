@@ -65,6 +65,7 @@ document.addEventListener("submit", async (event) => {
   // Send the state the button promises, not a toggle: a mark landing meanwhile (the automatic
   // one at the sources) can't turn the press into its opposite.
   const url = new URL(form.action);
+  const flag = url.searchParams.get("flag");
   url.searchParams.set("value", String(button.getAttribute("aria-pressed") !== "true"));
   const res = await fetch(url, {
     method: "POST",
@@ -75,7 +76,7 @@ document.addEventListener("submit", async (event) => {
     return;
   }
   const { value } = await res.json();
-  if (new URL(form.action).searchParams.get("flag") === "dismissed") {
+  if (flag === "dismissed") {
     // «No me interesa» moves the note in or out of the core: the server redraws its caveat,
     // «Esencial n de N», data-in-core and the «Leída · Esenciales» line. The browser keeps the
     // scroll; the entry's state tells the reloaded page why it came back (below), and whether
@@ -86,7 +87,7 @@ document.addEventListener("submit", async (event) => {
     return;
   }
   button.setAttribute("aria-pressed", String(value));
-  if (new URL(form.action).searchParams.get("flag") === "read") {
+  if (flag === "read") {
     form.closest("li")?.classList.toggle("is-read", value);  // an original's title styling
     // Unmarking the note takes back the "Leída · Esenciales" line the auto-mark showed.
     // Only the note's own toggle: an original's sits in the same article.

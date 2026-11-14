@@ -126,10 +126,13 @@ def test_section_lines_fold_past_four(client, engine, seeded):
     assert "y 1 más en Mundo" in page and page.count('<a class="row') == 5
 
 
-def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one(client, engine, seeded):
+def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one_and_says_so(
+    client, engine, seeded
+):
+    tag = '<span class="tag">No te interesa</span>'
     with Session(engine) as s, s.begin():
         world = s.get(Note, seeded["world"])
-        world.dismissed_at = utcnow()
+        world.dismissed_at, world.is_saved = utcnow(), True
         s.get(Note, seeded["front"]).is_read = True  # the reading goes on in Mundo
         world.edition.notes.append(
             Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
@@ -138,25 +141,13 @@ def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one(client, e
     page = client.get("/").text
     head = page.split('<article class="first')[1].split("</article>")[0]
     assert "Sigue aquí" in head and "Otra de Mundo" in head  # the core's note leads Mundo
-    lines = page.split('<article class="first')[1].split("</article>")[1]
-    assert "Cumbre climática" in lines.split("</section>")[0]  # the dismissed one, a line
+    lines = page.split('<article class="first')[1].split("</article>")[1].split("</section>")[0]
+    row = lines.split('<a class="row')[1].split("</a>")[0]
+    assert "Cumbre climática" in row and tag in row  # the dismissed one, a row that says so
     page = client.get("/e/2026-10-10/Mundo").text  # the section's own page too
     head, lines = page.split('<article class="first')[1].split("</article>")
     assert "Otra de Mundo" in head and "Cumbre climática" in lines
     assert "Sin notas en esta sección." in client.get("/e/2026-10-10/Nada").text
-
-
-def test_a_dismissed_note_says_so_in_todays_rows_and_guardados_lines(client, engine, seeded):
-    tag = '<span class="tag">No te interesa</span>'
-    with Session(engine) as s, s.begin():
-        world = s.get(Note, seeded["world"])
-        world.dismissed_at, world.is_saved = utcnow(), True
-        world.edition.notes.append(
-            Note(section="Mundo", rank=5, is_front=False, headline="Otra de Mundo", dek="",
-                 body="b", single_source=True, excerpt_only=False, drafted=True, read_minutes=1)
-        )  # fmt: skip
-    row = client.get("/").text.split('<a class="row')[1].split("</a>")[0]
-    assert "Cumbre climática" in row and tag in row
     line = client.get("/guardado").text.split('<a class="line')[1].split("</a>")[0]
     assert "Cumbre climática" in line and tag in line
     # Inside the headline's span, it wraps with the words: at 200 % zoom (195 px) a tag beside

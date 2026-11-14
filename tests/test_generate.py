@@ -613,7 +613,7 @@ def test_each_failed_attempt_is_logged_with_its_cause():
 
 
 def test_ollama_stuck_on_every_note_fails_the_edition(config, monkeypatch):
-    monkeypatch.setattr("newspaper.edition.generate.FAILED_DRAFTS_IN_A_ROW", 2)
+    monkeypatch.setattr("newspaper.edition.generate.FAILED_CALLS_IN_A_ROW", 2)
     result = run(config, llm=FakeLLM(fail_titles=[SENADO[0], SENADO_BBC[0], ATACAMA[0]]))
     assert result.status == "failed"
     assert "dejó de responder" in result.message

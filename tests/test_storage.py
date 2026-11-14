@@ -73,22 +73,14 @@ def test_core_without_front_page_or_with_one_note():
     assert queries.reading_order([]) == ([], [])
 
 
-def test_a_dismissed_note_leaves_the_core():
-    notes = [_n(0, "Mundo", True), _n(1, "Chile"), _n(2, "Chile"), _n(3, "Mundo")]
+def test_a_dismissed_note_leaves_the_core_and_ends_the_rest():
+    notes = [_n(0, "Mundo", True), _n(1, "Chile"), _n(2, "Chile"), _n(3, "Mundo"), _n(4, "Mundo")]
     for n in notes[:2]:
         n.dismissed_at = datetime(2026, 11, 13)
     core, rest = queries.reading_order(notes)
     assert [n.id for n in core] == [2, 3]  # Chile's next note takes the first one's place
-    assert [n.id for n in rest] == [0, 1]
-
-
-def test_the_rest_ends_with_the_dismissed_notes():
     # After Pleno día, «Seguir con el resto» opens rest[0]: never a note the reader dismissed.
-    notes = [_n(0, "Mundo", True), _n(1, "Chile"), _n(2, "Chile"), _n(3, "Mundo"), _n(4, "Mundo")]
-    notes[1].dismissed_at = datetime(2026, 11, 13)
-    core, rest = queries.reading_order(notes)
-    assert [n.id for n in core] == [0, 2, 3]
-    assert [n.id for n in rest] == [4, 1]
+    assert [n.id for n in rest] == [4, 0, 1]
 
 
 def test_set_flag_toggles_or_sets_on_notes_and_articles(engine, seeded):

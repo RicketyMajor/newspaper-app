@@ -180,33 +180,33 @@ class Ollama:
             draft.body = leading.sub("", draft.body)
         return draft
 
-    def classify(self, text: str, topics: list[str]) -> str:
-        """The topic `text` is mainly about, from `topics` (the earlier one when several fit),
-        or NO_TOPIC."""
-        choices = [*topics, NO_TOPIC]
-        system = CLASSIFY_PROMPT.format(topics="\n".join(f"- {t}" for t in topics))
+    def _ask(self, system: str, user: str, field: str, schema: dict) -> object:
+        """A short question: the model answers one JSON `field` shaped by `schema`."""
         data = self._post(
             "/api/chat",
             {
                 "model": self.cfg.model,
                 "stream": False,
-                "format": {
-                    "type": "object",
-                    "properties": {"tema": {"enum": choices}},
-                    "required": ["tema"],
-                },
+                "format": {"type": "object", "properties": {field: schema}, "required": [field]},
                 # Same num_ctx as draft: a different one makes Ollama reload the model.
                 "options": {"temperature": 0, "num_ctx": NUM_CTX},
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": user},
                 ],
             },
         )
         try:
-            topic = json.loads(data["message"]["content"])["tema"]
+            return json.loads(data["message"]["content"])[field]
         except (KeyError, TypeError, json.JSONDecodeError) as e:
-            raise OllamaError(f"classify: JSON inválido ({e})") from e
+            raise OllamaError(f"{field}: JSON inválido ({e})") from e
+
+    def classify(self, text: str, topics: list[str]) -> str:
+        """The topic `text` is mainly about, from `topics` (the earlier one when several fit),
+        or NO_TOPIC."""
+        choices = [*topics, NO_TOPIC]
+        system = CLASSIFY_PROMPT.format(topics="\n".join(f"- {t}" for t in topics))
+        topic = self._ask(system, text, "tema", {"enum": choices})
         if topic not in choices:
             raise OllamaError(f"classify: tema desconocido ({topic!r})")
         return topic
@@ -214,28 +214,8 @@ class Ollama:
     def same_matter(self, rejected: str, candidate: str) -> bool:
         """Whether `candidate` follows the same matter as `rejected`, a note the reader
         dismissed (D): the same case, person or organisation, or the same event going on."""
-        data = self._post(
-            "/api/chat",
-            {
-                "model": self.cfg.model,
-                "stream": False,
-                "format": {
-                    "type": "object",
-                    "properties": {"mismo_asunto": {"type": "boolean"}},
-                    "required": ["mismo_asunto"],
-                },
-                # Same num_ctx as draft: a different one makes Ollama reload the model.
-                "options": {"temperature": 0, "num_ctx": NUM_CTX},
-                "messages": [
-                    {"role": "system", "content": PAIR_PROMPT},
-                    {"role": "user", "content": f"A: {rejected}\n\nB: {candidate}"},
-                ],
-            },
-        )
-        try:
-            same = json.loads(data["message"]["content"])["mismo_asunto"]
-        except (KeyError, TypeError, json.JSONDecodeError) as e:
-            raise OllamaError(f"same_matter: JSON inválido ({e})") from e
+        user = f"A: {rejected}\n\nB: {candidate}"
+        same = self._ask(PAIR_PROMPT, user, "mismo_asunto", {"type": "boolean"})
         if not isinstance(same, bool):
             raise OllamaError(f"same_matter: respuesta no booleana ({same!r})")
         return same

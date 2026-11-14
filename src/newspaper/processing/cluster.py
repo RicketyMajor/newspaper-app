@@ -6,6 +6,12 @@ import math
 from collections.abc import Sequence
 
 
+def unit(v: Sequence[float]) -> list[float]:
+    """`v` at length 1 (a zero vector stays zero): a dot product of two is their cosine."""
+    norm = math.sqrt(math.sumprod(v, v)) or 1.0
+    return [x / norm for x in v]
+
+
 def cluster(vectors: Sequence[Sequence[float]], threshold: float) -> list[list[int]]:
     """Indices grouped by cosine similarity >= threshold, joined transitively.
 
@@ -14,11 +20,7 @@ def cluster(vectors: Sequence[Sequence[float]], threshold: float) -> list[list[i
     ponytail: pure-Python O(n²) dot products (math.sumprod runs in C): ~16 ms for a real
     edition's 42 articles, ~0.8 s for 300. Bring numpy back if a day ever has thousands.
     """
-    units = []
-    for v in vectors:
-        norm = math.sqrt(math.sumprod(v, v)) or 1.0
-        units.append([x / norm for x in v])
-
+    units = [unit(v) for v in vectors]
     parent = list(range(len(units)))
 
     def find(i: int) -> int:
