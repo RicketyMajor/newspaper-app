@@ -33,7 +33,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .. import schedule
 from ..config.models import NewspaperConfig
-from ..dates import long_date
+from ..dates import MONTHS, long_date
 from ..edition.images import TYPES, images_folder
 from ..edition.today import local_today, notice_at, running, today_banner
 from ..storage import queries
@@ -168,8 +168,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         return f"el {local.day}/{local.month} a las {local:%H:%M}"
 
     def day_month(moment: datetime) -> str:
-        """A naive UTC moment's day where the reader is, as `status` says it: «12-12»."""
-        return f"{moment.replace(tzinfo=UTC).astimezone(zone):%d-%m}"
+        """A naive UTC moment's day where the reader is, the month in words: «12 de diciembre»
+        (a screen reader reads «12-12», which `status` keeps, badly)."""
+        local = moment.replace(tzinfo=UTC).astimezone(zone)
+        return f"{local.day} de {MONTHS[local.month - 1]}"
 
     def starts(day: date, hhmm: str) -> str:
         """A show's start as an instant with the cinema's offset (#29): app.js compares it with

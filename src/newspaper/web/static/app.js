@@ -111,11 +111,16 @@ const redrawn = note ? history.state?.rechazo : undefined;
 if (redrawn !== undefined) {
   const { rechazo, teclado, ...rest } = history.state;
   history.replaceState(rest, "");
-  const button = note.querySelector(':scope > .toggles form[action$="flag=dismissed"] button');
-  button.focus({ preventScroll: true, focusVisible: teclado });
-  const said = `${button.lastChild.textContent.trim()}: ${redrawn ? "sí" : "no"}`;
-  // A status filled before the first frame isn't read out.
-  requestAnimationFrame(() => requestAnimationFrame(() => (live.textContent = said)));
+  // Unless the worker's copy answered the reload (a GET over 4 s, a 5xx): it has the state from
+  // before the press, maybe from before the button existed, so it neither focuses nor speaks.
+  const button = copy ? null : note.querySelector(':scope > .toggles form[action$="flag=dismissed"] button');
+  if (button) {
+    button.focus({ preventScroll: true, focusVisible: teclado });
+    // «quitado», not «no»: «No me interesa: no» reads as a double negative.
+    const said = `${button.lastChild.textContent.trim()}: ${redrawn ? "sí" : "quitado"}`;
+    // A status filled before the first frame isn't read out.
+    requestAnimationFrame(() => requestAnimationFrame(() => (live.textContent = said)));
+  }
 }
 
 // A note counts as read once its sources come into view, after the reader has scrolled; a note

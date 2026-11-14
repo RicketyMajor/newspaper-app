@@ -159,6 +159,9 @@ def test_a_dismissed_note_says_so_in_todays_rows_and_guardados_lines(client, eng
     assert "Cumbre climática" in row and tag in row
     line = client.get("/guardado").text.split('<a class="line')[1].split("</a>")[0]
     assert "Cumbre climática" in line and tag in line
+    # Inside the headline's span, it wraps with the words: at 200 % zoom (195 px) a tag beside
+    # it pushed the line 14 px past the screen.
+    assert f"{tag}</span><small>" in line
 
 
 def test_cards_name_their_outlets_instead_of_stamping_single_source(client, seeded):
@@ -415,13 +418,13 @@ def test_the_dismissal_says_until_when_it_lowers_and_then_that_it_no_longer_does
         s.get(Note, seeded["world"]).dismissed_at = datetime(2026, 11, 13, 2)
     page = client.get(f"/n/{seeded['world']}").text
     assert (
-        "<strong>No te interesa:</strong> hasta el 12-12, lo que siga este asunto irá al final de"
-        " su sección y nunca a portada. Para deshacerlo, pulsa otra vez «No me interesa»."
-    ) in page
+        "<strong>No te interesa:</strong> hasta el 12 de diciembre, lo que siga este asunto irá al"
+        " final de su sección y nunca a portada. Para deshacerlo, pulsa otra vez «No me interesa»."
+    ) in page  # the month in words: a screen reader says «12-12» badly
     assert "30 días" not in page
     monkeypatch.setattr("newspaper.web.app.utcnow", lambda: datetime(2026, 12, 13, 3))
     page = client.get(f"/n/{seeded['world']}").text  # from the Archive, later
-    assert "<strong>No te interesa</strong> (lo marcaste el 12-11): ya no baja nada." in page
+    assert "<strong>No te interesa</strong> (lo marcaste el 12 de noviembre): ya no baja" in page
     assert "hasta el" not in page
 
 
