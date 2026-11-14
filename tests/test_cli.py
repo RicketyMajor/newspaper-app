@@ -232,6 +232,7 @@ def test_install_and_uninstall_name_the_notice_task(tmp_path, monkeypatch):
     removed = CliRunner().invoke(main, ["schedule", "uninstall"])
     assert installed.exit_code == 0, installed.output
     assert "Tarea 'Newspaper aviso' lista: cada día a las 07:30" in installed.output
+    assert "06:00, y a las 06:30 si no salió" in " ".join(installed.output.split())
     assert "'Newspaper aviso'" in removed.output
 
 

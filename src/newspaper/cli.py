@@ -251,8 +251,9 @@ def install(ctx: click.Context) -> None:
     _powershell(schedule.install_script(config))
     hour = config.general.edition_hour
     console.print(
-        f"Tarea '{schedule.TASK_NAME}' lista: cada día a las {hour:02d}:00 (despierta el "
-        "equipo si está suspendido), o en cuanto lo enciendas si estaba apagado."
+        f"Tarea '{schedule.TASK_NAME}' lista: cada día a las {hour:02d}:00, y a las "
+        f"{hour:02d}:30 si no salió (despierta el equipo si está suspendido), o en cuanto lo "
+        "enciendas si estaba apagado."
     )
     if config.general.notice_time:
         console.print(
