@@ -356,9 +356,10 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         path = core + rest
         i = path.index(found)
         prev, after = (path[i - 1] if i else None), i + 1  # after: the next one's place in path
-        if found.is_dismissed:
+        if found.is_dismissed and not any(n.is_read and not n.is_dismissed for n in rest):
             # «No me interesa» took it out of the core, maybe mid-reading: the reading goes on
-            # at the first unread core note (or noon), and it sits just before that one.
+            # at the first unread core note (or noon), and it sits just before that one. Once
+            # the reader walks the rest (past noon), path order: the dismissed come last.
             after = next((j for j, n in enumerate(core) if not n.is_read), len(core))
             prev = core[after - 1] if after else None
 

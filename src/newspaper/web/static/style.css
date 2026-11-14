@@ -235,7 +235,7 @@ a.ear:hover { background: var(--panel); }
 }
 
 /* Shared bits of cards and notes */
-.tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); }
+.tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); white-space: nowrap; }
 .tag.warn { padding: 0 4px; border: 1px solid var(--ink); color: var(--ink); }
 .outlets.multi { color: var(--ink); font-weight: 700; }
 /* Drawn ✓, ★ and × (icon() in _macros.html) */

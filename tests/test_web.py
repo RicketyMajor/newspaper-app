@@ -267,6 +267,31 @@ def test_a_core_note_dismissed_mid_reading_goes_on_at_the_first_unread_core_note
     assert f'<link rel="next" href="/n/{seeded["front"]}">' in page and 'rel="prev"' not in page
 
 
+def test_walking_the_rest_past_noon_reaches_the_dismissed_notes_and_the_end(client, engine, seeded):
+    # After Pleno día the reader walks the rest: the dismissed notes come last and must lead to
+    # «Fin de la edición», not back to noon (a loop: «Seguir con el resto» reopens the first).
+    with Session(engine) as s, s.begin():
+        world = s.get(Note, seeded["world"])
+        world.is_read = s.get(Note, seeded["front"]).is_read = True
+        for rank in (5, 6, 7):
+            world.edition.notes.append(
+                Note(section="Mundo", rank=rank, is_front=False, headline=f"Mundo {rank}", dek="",
+                     body="b", single_source=True, excerpt_only=False, drafted=True,
+                     read_minutes=1, is_read=rank == 5)
+            )  # fmt: skip
+        s.flush()
+        m2, m3, m4 = (n.id for n in world.edition.notes[-3:])
+    for note in (m3, m4):
+        url = f"/n/{note}/estado?flag=dismissed"
+        assert client.post(url, headers={"Accept": "application/json"}).json() == {"value": True}
+    page = client.get(f"/n/{m3}").text
+    assert f'<link rel="next" href="/n/{m4}">' in page
+    assert f'rel="prev" href="/n/{m2}"' in page
+    page = client.get(f"/n/{m4}").text
+    assert "Fin de la edición" in page and 'rel="next"' not in page
+    assert f'rel="prev" href="/n/{m3}"' in page
+
+
 def test_saved_merges_favorites_and_saved_and_old_urls_redirect(client, seeded):
     client.post(f"/n/{seeded['front']}/estado?flag=favorite")
     client.post(f"/n/{seeded['front']}/estado?flag=saved")
