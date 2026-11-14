@@ -3,6 +3,7 @@ import sys
 from datetime import timedelta
 
 from sqlalchemy.orm import Session
+from textual.screen import Screen
 from textual.widgets import Input, Label, ListView
 
 from newspaper.config.models import CineConfig
@@ -14,6 +15,7 @@ from newspaper.tui.app import (
     ListScreen,
     NewspaperApp,
     NoteScreen,
+    ReaderScreen,
     SearchScreen,
     interest_label,
     note_text,
@@ -102,7 +104,8 @@ async def test_note_shows_flags_after_toggling(config, seeded):
 
 
 async def test_x_dismisses_the_open_note_and_undoes_it(config, engine, seeded):
-    app = NewspaperApp(config)
+    app, said = NewspaperApp(config), []
+    app.notify = lambda message, **_: said.append(message)
     async with app.run_test() as pilot:
         await pilot.press("l", "x")
         assert "no te interesa" in app.screen.sub_title
@@ -113,6 +116,8 @@ async def test_x_dismisses_the_open_note_and_undoes_it(config, engine, seeded):
         assert "no te interesa" not in app.screen.sub_title
     with Session(engine) as s:
         assert s.get(Note, seeded["front"]).dismissed_at is None
+    assert said == ["No me interesa: sí", "No me interesa: quitado"]  # never «…: no»
+    assert ReaderScreen.action_dismiss is Screen.action_dismiss  # Textual's own, not shadowed
 
 
 async def test_x_marks_a_listed_note_but_not_a_source(config, engine, seeded):

@@ -98,7 +98,7 @@ class ReaderScreen(Screen):
         Binding("m", "flag('read')", "Leído"),
         Binding("f", "flag('favorite')", "Favorito"),
         Binding("s", "flag('saved')", "Guardar"),
-        Binding("x", "dismiss", "No me interesa"),
+        Binding("x", "not_interested", "No me interesa"),  # "dismiss" is Textual's own
         Binding("o", "open_original", "Original"),
     ]
 
@@ -138,7 +138,7 @@ class ReaderScreen(Screen):
             self.show_flags(s, *target)
         self.notify(f"{FLAG_LABELS[flag]}: {'sí' if value else 'no'}")
 
-    def action_dismiss(self) -> None:
+    def action_not_interested(self) -> None:
         """«No me interesa» (D): only a note, not a source."""
         target = self.target()
         if target is None or target[0] != "note":
@@ -146,7 +146,7 @@ class ReaderScreen(Screen):
         with self.reader.session() as s, s.begin():
             value = queries.set_dismissed(s, target[1])
             self.show_flags(s, *target)
-        self.notify(f"No me interesa: {'sí' if value else 'no'}")
+        self.notify(f"No me interesa: {'sí' if value else 'quitado'}")  # never «…: no»
 
     def show_flags(self, s: Session, kind: str, ref: int) -> None:
         """Redraw the highlighted row so a toggled flag shows at once."""
