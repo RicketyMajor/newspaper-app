@@ -226,7 +226,7 @@ Por feed (`[[feeds]]`), reglas opcionales: expresiones regulares que se buscan (
 ## Desarrollo
 
 ```powershell
-pytest                       # 457 tests; sin red ni Ollama
+pytest                       # 495 tests; sin red ni Ollama
 ruff check src tests
 ruff format --check src tests
 ```

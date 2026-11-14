@@ -226,7 +226,7 @@ Optional `[interests]` (see the commented example): `like` and `dislike` lists o
 ## Development
 
 ```powershell
-pytest                       # 457 tests; no network or Ollama needed
+pytest                       # 495 tests; no network or Ollama needed
 ruff check src tests
 ruff format --check src tests
 ```
