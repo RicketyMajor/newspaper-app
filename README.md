@@ -47,6 +47,7 @@ Everything runs on your own computer. The language models run in [Ollama](https:
 - **A hands-free morning** (Windows): the PC wakes up, writes the edition, sends the daily notice, and goes back to sleep when nobody is using it.
 - **Reading without the PC**: when a Web Push notice arrives, or whenever you open it with the PC awake, the phone app keeps a read-only copy of the edition, so you can read while the PC sleeps.
 - **Your interests**: optional "like" and "dislike" phrases; the local model tags each event with one of them, and the edition is ordered accordingly.
+- **Not interested**: press «No me interesa» on a note (`x` in the terminal reader) and, for 30 days, what the local model judges to follow the same matter goes last in its section and never to the front page; press it again to undo.
 - **Per-feed rules**: drop or reroute articles by URL or title (`exclude`, `route`).
 - **Today's showtimes** (optional): today's and tomorrow's screenings of your cinemas in a "Cine" tab (and `c` in the terminal reader), read from their pages at most every 3 hours: Cine Arte Normandie, the CEINA's stage, or any cinema listed on [encartelera.cl](https://www.encartelera.cl).
 
@@ -159,6 +160,7 @@ Opening `read` or `web` after `edition_hour` starts today's edition in the backg
 | `l` / `Enter` | open |
 | `h` / `Esc` | back |
 | `m` / `f` / `s` | read / favorite / saved (note, or the focused source) |
+| `x` | not interested («No me interesa»; notes only, again to undo) |
 | `o` | open the original article in the browser |
 | `/` | search every edition |
 | `a` | archive |
@@ -217,7 +219,6 @@ Optional `[interests]` (see the commented example): `like` and `dislike` lists o
 ## Roadmap
 
 - Read marks that sync back from the offline copy.
-- A "Not interested" button that lowers similar stories.
 - One note per developing story.
 - Sections by topic, and managing sources and interests from the web.
 - More connectors (Hacker News, GitHub), other local LLM backends, Linux and macOS, and a PyPI package.

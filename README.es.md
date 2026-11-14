@@ -47,6 +47,7 @@ Todo corre en tu propio computador. Los modelos de lenguaje corren en [Ollama](h
 - **Una mañana sin manos** (Windows): el PC despierta, escribe la edición, manda el aviso diario y vuelve a dormir cuando nadie lo está usando.
 - **Leer sin el PC**: cuando llega un aviso por Web Push, o cada vez que la abres con el PC despierto, la app del teléfono guarda una copia de solo lectura de la edición, para leer mientras el PC duerme.
 - **Tus intereses**: frases opcionales de «me interesa» y «no me interesa»; el modelo local etiqueta cada acontecimiento con una de ellas y la edición se ordena en consecuencia.
+- **No me interesa**: púlsalo en una nota (`x` en el lector de terminal) y, durante 30 días, lo que el modelo local juzgue que sigue el mismo asunto irá al final de su sección y nunca a portada; púlsalo otra vez para deshacerlo.
 - **Reglas por feed**: descartar o mover artículos según su URL o su título (`exclude`, `route`).
 - **La cartelera del día** (opcional): las funciones de hoy y mañana de tus cines en una pestaña «Cine» (y la tecla `c` del lector de terminal), leídas de sus páginas cada 3 horas como máximo: el Cine Arte Normandie, el escenario del CEINA o cualquier sala de [encartelera.cl](https://www.encartelera.cl).
 
@@ -159,6 +160,7 @@ Abrir `read` o `web` después de la `edition_hour` empieza la edición de hoy en
 | `l` / `Enter` | abrir |
 | `h` / `Esc` | volver |
 | `m` / `f` / `s` | leída / favorita / guardada (la nota, o la fuente enfocada) |
+| `x` | no me interesa (solo notas; otra vez para deshacerlo) |
 | `o` | abrir el artículo original en el navegador |
 | `/` | buscar en todas las ediciones |
 | `a` | archivo |
@@ -217,7 +219,6 @@ Por feed (`[[feeds]]`), reglas opcionales: expresiones regulares que se buscan (
 ## Hoja de ruta
 
 - Marcas de leída que vuelvan desde la copia sin conexión.
-- Un botón «No me interesa» que baje las historias parecidas.
 - Una nota por historia en desarrollo.
 - Secciones por tema, y gestionar fuentes e intereses desde la web.
 - Más conectores (Hacker News, GitHub), otros motores de IA local, Linux y macOS, y un paquete en PyPI.
