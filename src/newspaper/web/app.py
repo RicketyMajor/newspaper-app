@@ -305,13 +305,11 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         if edition is None:
             return render(request, s, "empty.html", edition=None, notice_key=key)
         core = queries.reading_order(edition.notes)[0]
-        # Each section: its core note with a photo, then lines. That's its first note unless the
-        # reader dismissed it («No me interesa»): the next one leads, the dismissed one is a line.
+        # Each section: its core note with a photo, then lines (a dismissed first one, a line).
         sections = []
         for name, _ in queries.section_counts(s, edition.id):
-            notes = queries.section_notes(s, edition.id, name)
-            head = next((n for n in notes if n in core), notes[0])
-            sections.append((name, head, [n for n in notes if n is not head]))
+            head, *rest = queries.lead_first(queries.section_notes(s, edition.id, name), core)
+            sections.append((name, head, rest))
         # The masthead's right ear (#29): today's shows, whatever the edition's day. The copy
         # without the PC changes with the board, so it stays in step.
         cine_today = None
@@ -343,7 +341,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         found = queries.ready_edition(s, day)
         if found is None:
             raise HTTPException(404, "No hay edición para esa fecha")
-        notes = queries.section_notes(s, found.id, section)
+        core = queries.reading_order(found.notes)[0]
+        notes = queries.lead_first(queries.section_notes(s, found.id, section), core)
         return render(request, s, "section.html", edition=found, section=section, notes=notes)
 
     @app.get("/n/{note_id}", response_class=HTMLResponse)
@@ -354,14 +353,20 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         core, rest = queries.reading_order(found.edition.notes)
         path = core + rest
         i = path.index(found)
+        prev, after = (path[i - 1] if i else None), i + 1  # after: the next one's place in path
+        if found.is_dismissed:
+            # «No me interesa» took it out of the core, maybe mid-reading: the reading goes on
+            # at the first unread core note (or noon), and it sits just before that one.
+            after = next((j for j, n in enumerate(core) if not n.is_read), len(core))
+            prev = core[after - 1] if after else None
 
         def label(j: int) -> str:
             if j < len(core):
                 return f"{j + 1} de {len(core)}"
             return f"Más · {j - len(core) + 1} de {len(rest)}"
 
-        at_noon = i == len(core) - 1  # the core ends at noon, then the rest of the edition
-        next_note = path[i + 1] if i + 1 < len(path) and not at_noon else None
+        at_noon = after == len(core)  # the core ends at noon, then the rest of the edition
+        next_note = path[after] if after < len(path) and not at_noon else None
         if at_noon:
             next_url = f"/fin/{found.edition.edition_date}"
         else:
@@ -371,8 +376,8 @@ def create_app(config: NewspaperConfig) -> FastAPI:
         lowering = ends if ends and ends >= utcnow() else None
         response = render(
             request, s, "note.html", edition=found.edition, note=found, position_label=label(i),
-            prev_url=f"/n/{path[i - 1].id}" if i else None, next_url=next_url,
-            next_note=next_note, next_label=label(i + 1),
+            prev_url=f"/n/{prev.id}" if prev else None, next_url=next_url,
+            next_note=next_note, next_label=label(after),
             in_core=i < len(core), core_read=sum(n.is_read for n in core), core_total=len(core),
             core_ids=[n.id for n in core], lowering_until=lowering,
         )  # fmt: skip

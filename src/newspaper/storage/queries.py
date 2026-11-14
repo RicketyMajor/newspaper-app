@@ -137,6 +137,15 @@ def reading_order(notes: list[Note]) -> tuple[list[Note], list[Note]]:
     return core, sorted(rest, key=lambda n: n.is_dismissed)  # stable: rank order otherwise
 
 
+def lead_first(notes: list[Note], core: list[Note]) -> list[Note]:
+    """A section's notes (section_notes) with the one that leads it first, on Today and on its
+    own page: its core note, the first one unless the reader dismissed it («No me interesa»).
+    The others stay in rank order; none in the core (all dismissed, or none at all) changes
+    nothing."""
+    head = next((n for n in notes if n in core), None)
+    return [head, *(n for n in notes if n is not head)] if head else notes
+
+
 def get_note(s: Session, note_id: int) -> Note | None:
     stmt = select(Note).where(Note.id == note_id)
     return s.scalars(stmt.options(selectinload(Note.articles), selectinload(Note.edition))).first()

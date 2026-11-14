@@ -140,6 +140,10 @@ def test_a_dismissed_first_note_gives_its_section_slot_to_the_core_one(client, e
     assert "Sigue aquí" in head and "Otra de Mundo" in head  # the core's note leads Mundo
     lines = page.split('<article class="first')[1].split("</article>")[1]
     assert "Cumbre climática" in lines.split("</section>")[0]  # the dismissed one, a line
+    page = client.get("/e/2026-10-10/Mundo").text  # the section's own page too
+    head, lines = page.split('<article class="first')[1].split("</article>")
+    assert "Otra de Mundo" in head and "Cumbre climática" in lines
+    assert "Sin notas en esta sección." in client.get("/e/2026-10-10/Nada").text
 
 
 def test_a_dismissed_note_says_so_in_todays_rows_and_guardados_lines(client, engine, seeded):
@@ -232,6 +236,41 @@ def test_notes_after_the_core_count_as_more_and_end_the_edition(client, engine, 
     page = client.get(f"/n/{extra}").text
     assert "Más · 1 de 1" in page and "Fin de la edición" in page
     assert 'rel="next"' not in page
+
+
+def test_a_core_note_dismissed_mid_reading_goes_on_at_the_first_unread_core_note(
+    client, engine, seeded
+):
+    # The reader read the front page, opened Mundo's note (the core's last) and dismissed it:
+    # it leaves the core, Mundo's next note takes its slot, and the reload must not say
+    # «Fin de la edición» (no rel=next: no swipe, no → or j).
+    with Session(engine) as s, s.begin():
+        world = s.get(Note, seeded["world"])
+        s.get(Note, seeded["front"]).is_read = True
+        for rank, section in enumerate(["Mundo", "Chile"], 5):
+            world.edition.notes.append(
+                Note(section=section, rank=rank, is_front=False, headline=f"Otra de {section}",
+                     dek="", body="b", single_source=True, excerpt_only=False, drafted=True,
+                     read_minutes=1)
+            )  # fmt: skip
+        s.flush()
+        other_world, other_chile = (n.id for n in world.edition.notes[-2:])
+    url = f"/n/{seeded['world']}/estado?flag=dismissed"
+    assert client.post(url, headers={"Accept": "application/json"}).json() == {"value": True}
+    page = client.get(f"/n/{seeded['world']}").text
+    assert f'<link rel="next" href="/n/{other_world}">' in page
+    assert "Siguiente · 2 de 3 · Mundo" in page and "Fin de la edición" not in page
+    assert f'rel="prev" href="/n/{seeded["front"]}"' in page  # where the reader came from
+    with Session(engine) as s, s.begin():  # the rest of the core read: noon is next
+        s.get(Note, other_world).is_read = s.get(Note, other_chile).is_read = True
+    page = client.get(f"/n/{seeded['world']}").text
+    assert '<link rel="next" href="/fin/2026-10-10">' in page and "Pleno día" in page
+    assert f'rel="prev" href="/n/{other_chile}"' in page
+    with Session(engine) as s, s.begin():  # nothing read yet: the core's first is next
+        for note in s.get(Note, seeded["world"]).edition.notes:
+            note.is_read = False
+    page = client.get(f"/n/{seeded['world']}").text
+    assert f'<link rel="next" href="/n/{seeded["front"]}">' in page and 'rel="prev"' not in page
 
 
 def test_saved_merges_favorites_and_saved_and_old_urls_redirect(client, seeded):
