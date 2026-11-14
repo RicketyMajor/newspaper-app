@@ -235,8 +235,9 @@ a.ear:hover { background: var(--panel); }
 }
 
 /* Shared bits of cards and notes */
-.tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); white-space: nowrap; }
-.tag.warn { padding: 0 4px; border: 1px solid var(--ink); color: var(--ink); }
+.tag { margin-left: 0.35rem; font: 600 11px/1.4 var(--sans); color: var(--grey); }
+/* Boxed: kept whole (a box split over two lines). The others wrap: an interest tag runs ~88 chars. */
+.tag.warn { padding: 0 4px; border: 1px solid var(--ink); color: var(--ink); white-space: nowrap; }
 .outlets.multi { color: var(--ink); font-weight: 700; }
 /* Drawn ✓, ★ and × (icon() in _macros.html) */
 .ic { flex: none; width: 1em; height: 1em; vertical-align: -0.1em; }
