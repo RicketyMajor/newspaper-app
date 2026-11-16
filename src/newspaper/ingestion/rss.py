@@ -7,8 +7,11 @@ import html
 import ipaddress
 import re
 import socket
+import threading
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 
 import feedparser
 import httpx
@@ -18,6 +21,8 @@ from ..config.models import FeedConfig
 USER_AGENT = (
     "Mozilla/5.0 (compatible; Newspaper/0.1; +https://github.com/RicketyMajor/newspaper-app)"
 )
+# The client's timeout is per read: a host sending a byte every 19 s beats it for ever.
+READ_SECONDS, READ_BYTES = 30, 10_000_000
 
 
 @dataclass
@@ -67,6 +72,51 @@ def make_client(timeout: float = 20, transport: httpx.BaseTransport | None = Non
         event_hooks={"request": [_public_only]},
         transport=transport,  # tests only
     )
+
+
+def read_capped(
+    client: httpx.Client, url: str, *, seconds: float = READ_SECONDS, max_bytes: int = READ_BYTES
+) -> tuple[bytes, httpx.Response]:
+    """(body, response) of a GET, within `seconds` and `max_bytes` of body, else TimeoutError or
+    ValueError. The response gives the URL after redirects and the encoding. ponytail: the bytes
+    counted are decoded ones (a gzip bomb inflates one chunk before it's seen, as in cine.py);
+    the threat is a dripping host, not a known outlet's bomb. Headers dripping: within()."""
+    deadline, body = monotonic() + seconds, bytearray()
+    with client.stream("GET", url) as response:
+        response.raise_for_status()
+        for chunk in response.iter_bytes():
+            body += chunk
+            if len(body) > max_bytes:
+                raise ValueError(f"pasa de {max_bytes // 1_000_000} MB")
+            if monotonic() > deadline:
+                raise TimeoutError(f"tardó más de {seconds} s")
+    return bytes(body), response
+
+
+def within[K, A, R](
+    items: Mapping[K, A], fn: Callable[[A], R], *, workers: int, seconds: float
+) -> dict[K, R]:
+    """key -> fn(value), `workers` at a time, for those done within `seconds`. A host dripping
+    its headers beats every per-read timeout, so the batch has its own clock; its threads are
+    daemons, so one still stuck never holds the process at exit. `fn` mustn't raise: one that
+    does counts as not done. One starting after the clock doesn't run."""
+    deadline = monotonic() + seconds
+    gate, lock, done = threading.Semaphore(workers), threading.Lock(), {}
+
+    def run(key: K, value: A) -> None:
+        with gate:
+            if monotonic() < deadline:
+                result = fn(value)
+                with lock:
+                    done[key] = result
+
+    threads = [threading.Thread(target=run, args=item, daemon=True) for item in items.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0, deadline - monotonic()))
+    with lock:
+        return dict(done)
 
 
 # Control characters: an ESC in a title would reach the terminal (the TUI, `status`).
@@ -140,6 +190,5 @@ def parse_feed(data: bytes, feed: FeedConfig) -> list[RawArticle]:
 
 
 def fetch_feed(client: httpx.Client, feed: FeedConfig) -> list[RawArticle]:
-    response = client.get(feed.url)
-    response.raise_for_status()
-    return parse_feed(response.content, feed)
+    body, _ = read_capped(client, feed.url)
+    return parse_feed(body, feed)

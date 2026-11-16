@@ -5,7 +5,6 @@ loads an image from another site."""
 from __future__ import annotations
 
 import re
-import threading
 from collections import defaultdict
 from collections.abc import Callable, Set
 from contextlib import suppress
@@ -123,26 +122,10 @@ def attach_images(
 
 
 def _download_all(client: httpx.Client, wanted: dict[int, str]) -> dict[int, object]:
-    """note id -> download(), WORKERS at a time, for those done within BATCH_SECONDS. A host
-    dripping its headers beats every per-read timeout, so the batch has its own clock; its
-    threads are daemons, so one still stuck never holds `generate` at exit."""
-    deadline = monotonic() + BATCH_SECONDS
-    gate, lock, done = threading.Semaphore(WORKERS), threading.Lock(), {}
+    """note id -> download(), for those done within BATCH_SECONDS (the batch's own clock)."""
+    from ..ingestion.rss import within  # here: the readers import this module (/img), not feeds
 
-    def fetch(note_id: int, url: str) -> None:
-        with gate:
-            if monotonic() < deadline:  # a late start: the batch is over
-                photo = download(client, url)
-                with lock:
-                    done[note_id] = photo
-
-    threads = [threading.Thread(target=fetch, args=item, daemon=True) for item in wanted.items()]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(max(0, deadline - monotonic()))
-    with lock:
-        return dict(done)
+    return within(wanted, lambda url: download(client, url), workers=WORKERS, seconds=BATCH_SECONDS)
 
 
 def prune_images(engine: Engine, folder: Path, today: date) -> None:

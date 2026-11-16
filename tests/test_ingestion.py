@@ -1,3 +1,5 @@
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -198,3 +200,67 @@ def test_client_refuses_a_host_that_does_not_resolve(monkeypatch):
     client = rss.make_client(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
     with pytest.raises(rss.BlockedURL):
         client.get("https://nowhere.example/")
+
+
+def test_read_capped_gives_up_on_a_body_that_drips_or_grows_too_big(monkeypatch):
+    # Each read beats the client's 20 s, but the whole page would take 200 s.
+    clock = [0.0]
+    monkeypatch.setattr(rss, "monotonic", lambda: clock[0])
+
+    def dripping():
+        for _ in range(20):
+            clock[0] += 10
+            yield b"x" * 100
+
+    with pytest.raises(TimeoutError):
+        rss.read_capped(client_for({CIPER.url: httpx.Response(200, content=dripping())}), CIPER.url)
+    assert clock[0] <= rss.READ_SECONDS + 10
+    huge = httpx.Response(200, content=iter([b"x" * 600, b"x" * 600]))
+    with pytest.raises(ValueError):
+        rss.read_capped(client_for({CIPER.url: huge}), CIPER.url, max_bytes=1000)
+    body, response = rss.read_capped(
+        client_for({CIPER.url: httpx.Response(200, text="ñ")}), CIPER.url
+    )
+    assert body.decode(response.encoding) == "ñ" and str(response.url) == CIPER.url
+
+
+def test_within_returns_what_finished_and_never_waits_for_a_stuck_one():
+    # A host dripping its headers beats any per-read timeout: only an outside clock stops it.
+    never = threading.Event()
+
+    def fetch(value):
+        if value == "goteo":
+            never.wait(5)  # bounded, so code without the clock fails instead of hanging
+        return value.upper()
+
+    started = time.monotonic()
+    try:
+        got = rss.within({1: "a", 2: "goteo", 3: "b"}, fetch, workers=2, seconds=0.3)
+    finally:
+        never.set()
+    assert time.monotonic() - started < 2
+    assert got == {1: "A", 3: "B"}
+
+
+def test_a_stuck_page_falls_back_to_the_excerpt_without_holding_the_edition(monkeypatch):
+    never = threading.Event()
+    html = (FIXTURES / "article.html").read_text(encoding="utf-8")
+
+    def handler(request):
+        if request.url.path == "/goteo":
+            never.wait(5)
+        return httpx.Response(200, html=html)
+
+    monkeypatch.setattr("newspaper.ingestion.extract.EXTRACT_SECONDS", 0.3)
+    started = time.monotonic()
+    try:
+        pages = extract_many(
+            httpx.Client(transport=httpx.MockTransport(handler)),
+            ["https://ciper.test/a", "https://ciper.test/goteo"],
+        )
+    finally:
+        never.set()
+    assert time.monotonic() - started < 2
+    assert pages["https://ciper.test/a"].text and pages["https://ciper.test/goteo"] == Page(
+        None, None
+    )

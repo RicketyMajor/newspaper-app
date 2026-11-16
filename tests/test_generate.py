@@ -1,6 +1,8 @@
 import os
 import subprocess
 import sys
+import threading
+import time
 from array import array
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
@@ -409,6 +411,26 @@ def test_ingest_skips_urls_already_stored(config, engine):
 def test_ingest_stores_an_article_listed_by_two_feeds_once(config, engine):
     config.feeds[1].url = config.feeds[0].url
     assert ingest(engine, config, http()) == (2, [])
+
+
+def test_a_stuck_feed_is_an_error_and_the_others_still_come_in(config, engine, monkeypatch):
+    # A feed dripping its headers would hold `fetch` (and every later one: IgnoreNew).
+    never, ok = threading.Event(), http()
+
+    def handler(request):
+        if request.url.host == "bbc.test":
+            never.wait(5)  # bounded, so code without the clock fails instead of hanging
+        answer = ok.get(str(request.url))
+        return httpx.Response(answer.status_code, content=answer.content)
+
+    monkeypatch.setattr("newspaper.edition.generate.FEEDS_SECONDS", 0.3)
+    started = time.monotonic()
+    try:
+        got = ingest(engine, config, httpx.Client(transport=httpx.MockTransport(handler)))
+    finally:
+        never.set()
+    assert time.monotonic() - started < 2
+    assert got == (2, ["BBC Mundo: sin respuesta en 0.3 s"])
 
 
 def test_failed_draft_publishes_excerpts(config, engine):

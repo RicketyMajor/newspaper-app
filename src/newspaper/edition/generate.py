@@ -22,10 +22,10 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..ai.ollama import NEUTRAL_TOPICS, Draft, Ollama, OllamaError, OllamaUnavailableError
-from ..config.models import InterestsConfig, NewspaperConfig
+from ..config.models import FeedConfig, InterestsConfig, NewspaperConfig
 from ..ingestion.cine import refresh_cine
 from ..ingestion.extract import extract_many
-from ..ingestion.rss import fetch_feed, make_client
+from ..ingestion.rss import RawArticle, fetch_feed, make_client, within
 from ..processing.cluster import cluster, unit
 from ..processing.select import Interest, Selected, select_groups
 from ..storage import queries
@@ -45,6 +45,7 @@ DISMISS_LABEL_CHARS = 60
 # too: each failed comparison counts as "no", so it would take hours before drafting starts.
 FAILED_CALLS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
+FEEDS_SECONDS = 120  # every feed, 8 at a time: ~40 s one by one on a normal day
 # The first letter after any leading punctuation (¿, «, quotes); a leading digit or a Markdown
 # code span (`) means none.
 _FIRST_LETTER = re.compile(r"^([^\w`]*)([^\W\d_])")
@@ -230,12 +231,21 @@ def _ingest_feeds(
     feeds = config.active_feeds
     if not feeds:
         raise RuntimeError("No hay fuentes activas en newspaper.toml.")
-    fetched, errors = [], []
-    for feed in feeds:
+
+    def read(feed: FeedConfig) -> list[RawArticle] | Exception:
         try:
-            fetched += fetch_feed(http, feed)
+            return fetch_feed(http, feed)
         except Exception as e:
-            errors.append(f"{feed.name}: {e}")
+            return e
+
+    done = within(dict(enumerate(feeds)), read, workers=8, seconds=FEEDS_SECONDS)
+    fetched, errors = [], []
+    for i, feed in enumerate(feeds):  # in the TOML's order, as when they were read one by one
+        got = done.get(i, f"sin respuesta en {FEEDS_SECONDS} s")
+        if isinstance(got, list):
+            fetched += got
+        else:
+            errors.append(f"{feed.name}: {got}")
     if len(errors) == len(feeds):
         raise RuntimeError("Ninguna fuente respondió.\n" + "\n".join(errors))
     if not fetched:

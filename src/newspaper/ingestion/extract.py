@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 from typing import NamedTuple
 from urllib.parse import urljoin
 
 import httpx
 import trafilatura
 
-from .rss import web_url
+from .rss import read_capped, web_url, within
 
 MIN_CHARS = 200  # shorter results are usually paywall teasers or cookie walls
+EXTRACT_SECONDS = 300  # every page and its retries: ~6 s for 60 on a normal day
 
 
 class Page(NamedTuple):
@@ -22,9 +23,8 @@ class Page(NamedTuple):
 def extract_page(client: httpx.Client, url: str) -> Page:
     # One bad page must never stop the edition: the caller falls back to the RSS.
     try:
-        response = client.get(url)
-        response.raise_for_status()
-        html = response.text
+        body, response = read_capped(client, url)
+        html = body.decode(response.encoding or "utf-8", errors="replace")  # = response.text
         text = trafilatura.extract(html, url=url, include_comments=False, include_tables=False)
     except Exception:
         return Page(None, None)
@@ -37,12 +37,19 @@ def extract_page(client: httpx.Client, url: str) -> Page:
 
 
 def extract_many(client: httpx.Client, urls: list[str], workers: int = 8) -> dict[str, Page]:
-    with ThreadPoolExecutor(workers) as pool:
-        pages = dict(zip(urls, pool.map(lambda url: extract_page(client, url), urls), strict=True))
+    """url -> Page within EXTRACT_SECONDS; one not done by then falls back to the RSS too."""
+    deadline = monotonic() + EXTRACT_SECONDS
+
+    def read(url: str) -> Page:
+        return extract_page(client, url)
+
+    done = within({u: u for u in urls}, read, workers=workers, seconds=EXTRACT_SECONDS)
+    pages = {u: done.get(u, Page(None, None)) for u in urls}
     # A busy site drops some parallel requests (CIPER lost 3 of 5 with 144 at once, 2026-10-14):
-    # retry those one at a time. ponytail: a paywalled page fails twice, a second or two each.
+    # retry those one at a time, in what's left of the clock (nothing, if one was stuck).
+    # ponytail: a paywalled page fails twice, a second or two each.
     # A paywall's first read may have had the photo: a retry without one keeps it.
-    for url in [u for u, page in pages.items() if page.text is None]:
-        retry = extract_page(client, url)
+    failed = {u: u for u, page in pages.items() if page.text is None}
+    for url, retry in within(failed, read, workers=1, seconds=deadline - monotonic()).items():
         pages[url] = Page(retry.text, retry.image or pages[url].image)
     return pages
