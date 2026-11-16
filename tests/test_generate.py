@@ -433,6 +433,19 @@ def test_a_stuck_feed_is_an_error_and_the_others_still_come_in(config, engine, m
     assert got == (2, ["BBC Mundo: sin respuesta en 0.3 s"])
 
 
+def test_a_stuck_cinema_never_holds_ingest(config, engine, monkeypatch):
+    # cine.py's READ_FOR stops a dripping body, not a host dripping its headers.
+    never = threading.Event()
+    monkeypatch.setattr("newspaper.edition.generate.refresh_cine", lambda *a: never.wait(5))
+    monkeypatch.setattr("newspaper.edition.generate.CINE_SECONDS", 0.3, raising=False)
+    started = time.monotonic()
+    try:
+        assert ingest(engine, config, http()) == (3, [])
+    finally:
+        never.set()
+    assert time.monotonic() - started < 2
+
+
 def test_failed_draft_publishes_excerpts(config, engine):
     assert run(config, FakeLLM(fail_titles={ATACAMA[0]})).status == "ready"
     with Session(engine) as s:

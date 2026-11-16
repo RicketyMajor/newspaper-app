@@ -79,8 +79,9 @@ def read_capped(
 ) -> tuple[bytes, httpx.Response]:
     """(body, response) of a GET, within `seconds` and `max_bytes` of body, else TimeoutError or
     ValueError. The response gives the URL after redirects and the encoding. ponytail: the bytes
-    counted are decoded ones (a gzip bomb inflates one chunk before it's seen, as in cine.py);
-    the threat is a dripping host, not a known outlet's bomb. Headers dripping: within()."""
+    counted are decoded ones (a gzip bomb inflates one chunk before it's seen, as in cine.py),
+    and a gzip body dripping its own header yields no chunk to check the clock on; the threat is
+    a dripping host, not a known outlet's bomb. Those, and headers dripping: within()'s clock."""
     deadline, body = monotonic() + seconds, bytearray()
     with client.stream("GET", url) as response:
         response.raise_for_status()

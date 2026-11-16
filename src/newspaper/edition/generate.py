@@ -46,6 +46,7 @@ DISMISS_LABEL_CHARS = 60
 FAILED_CALLS_IN_A_ROW = 3
 WORDS_PER_MINUTE = 200
 FEEDS_SECONDS = 120  # every feed, 8 at a time: ~40 s one by one on a normal day
+CINE_SECONDS = 240  # the cinemas' pages, READ_FOR (60 s) each, one after another
 # The first letter after any leading punctuation (¿, «, quotes); a leading digit or a Markdown
 # code span (`) means none.
 _FIRST_LETTER = re.compile(r"^([^\w`]*)([^\W\d_])")
@@ -218,11 +219,14 @@ def ingest(engine: Engine, config: NewspaperConfig, http: httpx.Client) -> tuple
     Safe while another process ingests (`fetch` and `generate` may overlap): a URL already
     stored, or listed twice, is skipped.
     Then the cinemas' showtimes, when due (#29; refresh_cine never raises): last, so a slow
-    cinema page never holds up the articles, and also when every feed is down."""
+    cinema page never holds up the articles, and also when every feed is down. On a clock of
+    its own: READ_FOR stops a dripping body, not a host dripping its headers."""
     try:
         return _ingest_feeds(engine, config, http)
     finally:
-        refresh_cine(engine, config, http)
+        within(
+            {0: 0}, lambda _: refresh_cine(engine, config, http), workers=1, seconds=CINE_SECONDS
+        )
 
 
 def _ingest_feeds(
@@ -232,6 +236,8 @@ def _ingest_feeds(
     if not feeds:
         raise RuntimeError("No hay fuentes activas en newspaper.toml.")
 
+    # ponytail: feedparser fills a class-level dict on its first parse in the process; 8 at once
+    # could see it half-filled, losing a non-standard namespace prefix for that run only.
     def read(feed: FeedConfig) -> list[RawArticle] | Exception:
         try:
             return fetch_feed(http, feed)

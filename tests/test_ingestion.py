@@ -264,3 +264,26 @@ def test_a_stuck_page_falls_back_to_the_excerpt_without_holding_the_edition(monk
     assert pages["https://ciper.test/a"].text and pages["https://ciper.test/goteo"] == Page(
         None, None
     )
+
+
+def test_the_retries_share_the_clock_a_stuck_page_used_up(monkeypatch):
+    # A fresh clock for the retries would let the edition wait twice EXTRACT_SECONDS.
+    never, calls = threading.Event(), []
+    html = (FIXTURES / "article.html").read_text(encoding="utf-8")
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/goteo":
+            never.wait(5)
+        busy = request.url.path == "/b" and calls.count("/b") == 1
+        return httpx.Response(503) if busy else httpx.Response(200, html=html)
+
+    monkeypatch.setattr("newspaper.ingestion.extract.EXTRACT_SECONDS", 0.3)
+    try:
+        pages = extract_many(
+            httpx.Client(transport=httpx.MockTransport(handler)),
+            ["https://ciper.test/b", "https://ciper.test/goteo"],
+        )
+    finally:
+        never.set()
+    assert calls.count("/b") == 1 and pages["https://ciper.test/b"] == Page(None, None)

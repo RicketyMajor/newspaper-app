@@ -45,8 +45,10 @@ def extract_many(client: httpx.Client, urls: list[str], workers: int = 8) -> dic
 
     done = within({u: u for u in urls}, read, workers=workers, seconds=EXTRACT_SECONDS)
     pages = {u: done.get(u, Page(None, None)) for u in urls}
+    if len(done) < len(urls):  # one held the clock to its end: no time is left for retries
+        return pages
     # A busy site drops some parallel requests (CIPER lost 3 of 5 with 144 at once, 2026-10-14):
-    # retry those one at a time, in what's left of the clock (nothing, if one was stuck).
+    # retry those one at a time, in what's left of the clock.
     # ponytail: a paywalled page fails twice, a second or two each.
     # A paywall's first read may have had the photo: a retry without one keeps it.
     failed = {u: u for u, page in pages.items() if page.text is None}
