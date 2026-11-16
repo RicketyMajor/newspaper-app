@@ -201,6 +201,10 @@ if (unread) {
     const on = root.classList.toggle("oculta-leidas");
     unread.setAttribute("aria-pressed", String(on));
     store("solo-sin-leer", on ? "on" : "off");
+    // A screen reader hears what changed, not only «activado» (the CSS's selector: style.css).
+    const n = document.querySelectorAll(":is(article.lead, .card, .first, .row).done").length;
+    live.textContent = !on ? "Se muestran todas" : !n ? "Aún no hay notas leídas"
+      : n === 1 ? "Se oculta 1 leída" : `Se ocultan ${n} leídas`;
   });
 }
 

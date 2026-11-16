@@ -412,7 +412,7 @@ def test_a_note_can_be_dismissed_and_undone(client, engine, seeded):
     assert 'class="note rechazada"' in page
     assert "<strong>No te interesa:</strong>" in page
     form = page.split(f'action="/n/{seeded["world"]}/estado?flag=dismissed">')[1]
-    assert form.lstrip().startswith('<button aria-pressed="true">')
+    assert form.lstrip().startswith('<button aria-pressed="true" aria-describedby="no-interesa">')
     assert client.post(url, headers=json_).json() == {"value": False}
     page = client.get(f"/n/{seeded['world']}").text
     assert "rechazada" not in page
@@ -451,6 +451,27 @@ def test_a_note_lowered_by_d_says_why(client, engine, seeded):
     page = client.get(f"/n/{seeded['world']}").text
     assert "sigue un asunto que marcaste «No me interesa»" in page
     assert "de tu lista de intereses" not in page
+
+
+def test_screen_readers_hear_what_each_button_is_about(client, engine, seeded):
+    page = client.get(f"/n/{seeded['front']}").text
+    # A source's Leído and Guardar name the source they mark (6 pairs read alike otherwise).
+    first = seeded["articles"][0]
+    assert f'<span id="t-{first}">' in page
+    assert page.count(f'aria-describedby="t-{first}"') == 2
+    # «No me interesa» says what it does only once it's on, from its caveat.
+    assert 'id="no-interesa"' not in page and 'aria-describedby="no-interesa"' not in page
+    client.post(f"/n/{seeded['front']}/estado?flag=dismissed")
+    page = client.get(f"/n/{seeded['front']}").text
+    assert '<li id="no-interesa"><strong>No te interesa' in page
+    assert '<button aria-pressed="true" aria-describedby="no-interesa">' in page
+    # The swipe hint is for eyes on a touch screen: TalkBack's swipe moves the focus instead.
+    assert '<span class="hint swipe" aria-hidden="true">Tócala o desliza' in page
+
+
+def test_noon_says_what_its_counts_are(client, seeded):
+    page = client.get("/fin/2026-10-10").text
+    assert '<p class="chips"><span class="sr-only">Notas esenciales:</span>' in page
 
 
 def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):

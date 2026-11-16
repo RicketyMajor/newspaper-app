@@ -103,7 +103,7 @@
 {% endmacro %}
 
 {% macro original(a) -%}
-<a href="/a/{{ a.id }}" target="_blank" rel="noopener">{{ a.title }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
+<a href="/a/{{ a.id }}" target="_blank" rel="noopener"><span id="t-{{ a.id }}">{{ a.title }}</span><span class="sr-only"> (se abre en otra pestaña)</span></a>
 {%- endmacro %}
 
 {# Fixed labels; the state lives in aria-pressed and the glyph is decorative (CSS shows it).
@@ -119,8 +119,11 @@
   {% for flag, attr, label, glyph in FLAGS[kind] %}
   {# Originals offer Leído · Guardar; Favorito only to undo one marked before or in the TUI. #}
   {% if kind == 'n' or flag != 'favorite' or obj.is_favorite %}
+  {#- A screen reader hears what a source's button marks (its title, from original()) and, once
+      on, what «No me interesa» does (the note's caveat). #}
+  {%- set about = 't-%d'|format(obj.id) if kind == 'a' else 'no-interesa' if flag == 'dismissed' and obj.is_dismissed %}
   <form method="post" action="/{{ kind }}/{{ obj.id }}/estado?flag={{ flag }}">
-    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}">{{ icon(glyph) }}{{ label }}</button>
+    <button aria-pressed="{{ 'true' if obj[attr] else 'false' }}"{% if about %} aria-describedby="{{ about }}"{% endif %}>{{ icon(glyph) }}{{ label }}</button>
   </form>
   {% endif %}
   {% endfor %}
