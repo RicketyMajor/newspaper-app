@@ -455,7 +455,9 @@ function applyMarks(base) {
     // «No me interesa» isn't in the base: the saved page's own state stands (the revision).
     if (letters[flag]) button.setAttribute("aria-pressed", String(on));
     button.setAttribute("aria-disabled", "true");
-    button.setAttribute("aria-describedby", "espera");
+    // Added to what it says it marks (a source's title, the dismissal's caveat), not instead.
+    const about = button.getAttribute("aria-describedby");
+    button.setAttribute("aria-describedby", about ? `${about} espera` : "espera");
     if (kind === "a" && flag === "read") form.closest("li")?.classList.toggle("is-read", on);
   }
   // One caption for every waiting button: under the note's own row, elsewhere hidden (it still

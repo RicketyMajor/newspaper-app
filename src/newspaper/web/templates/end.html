@@ -14,7 +14,7 @@
   {% else %}
   <p class="lead">Terminaste lo esencial: {{ core_total }}&nbsp;{{ 'nota' if core_total == 1 else 'notas' }}, {{ core_minutes }}&nbsp;minutos, de {{ core_sections }}&nbsp;{{ 'sección' if core_sections == 1 else 'secciones' }}.</p>
   {% endif %}
-  <p class="chips"><span class="sr-only">Notas esenciales:</span>{% for name, n in bands %}<span>{{ name }} {{ n }}</span>{% endfor %}</p>
+  {% if bands %}<p class="chips"><span class="sr-only">Notas esenciales:</span>{% for name, n in bands %}<span>{{ name }} {{ n }}</span>{% endfor %}</p>{% endif %}
   <div class="cta">
     {% if first_rest %}<a class="p" href="/n/{{ first_rest.id }}">Seguir con el resto · {{ rest_total }}&nbsp;notas</a>{% endif %}
     <a class="s" href="/e/{{ edition.edition_date }}">Volver a la portada</a>

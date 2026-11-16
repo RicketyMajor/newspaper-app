@@ -469,9 +469,13 @@ def test_screen_readers_hear_what_each_button_is_about(client, engine, seeded):
     assert '<span class="hint swipe" aria-hidden="true">Tócala o desliza' in page
 
 
-def test_noon_says_what_its_counts_are(client, seeded):
+def test_noon_says_what_its_counts_are(client, engine, seeded):
     page = client.get("/fin/2026-10-10").text
     assert '<p class="chips"><span class="sr-only">Notas esenciales:</span>' in page
+    with Session(engine) as s, s.begin():  # every core note dismissed: no counts, no label
+        for note in s.get(Note, seeded["front"]).edition.notes:
+            note.dismissed_at = utcnow()
+    assert "Notas esenciales:" not in client.get("/fin/2026-10-10").text
 
 
 def test_note_markdown_is_rendered_without_raw_html(client, engine, seeded):
