@@ -111,9 +111,15 @@ body {
 body:has(> .tabbar) { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
 /* Tab to a link hidden under the fixed bar: the page scrolls it into sight (WCAG 2.4.7). */
 html { scroll-padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+/* The same under the note's sticky bar (52 px), for Shift+Tab and for #fuentes or a source's
+   anchor (WCAG 2.4.11). */
+html:has(.bar) { scroll-padding-top: 60px; }
 
 h1, h2, h3, p, ol, ul, figure { margin: 0; }
 h1, h2, h3 { font-weight: 700; text-wrap: balance; }
+/* At 200 % on a phone (~195 px), a long word («experimentalmente») fills the line: hyphenate it
+   there only (lang="es"), so the printed look keeps its whole words. */
+@media (max-width: 260px) { h1, h2, h3, .next .h { hyphens: auto; } }
 p { text-wrap: pretty; }
 a { color: inherit; text-underline-offset: 0.16em; text-decoration-thickness: 1px; }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 2px; }
@@ -438,12 +444,14 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 .chips span { padding: 5px 8px; border: 1px solid var(--ink); font: 600 11.5px/1 var(--sans); }
 .note .diff p { font-size: 16.5px; line-height: 1.5; }
 .note .diff p + p { margin-top: 0.7em; }
-.note .src { padding: 6px var(--gutter) 0; scroll-margin-top: 60px; }
+.note .src { padding: 6px var(--gutter) 0; }
 .note .src ol { padding: 0; list-style: none; }
-.note .src li { padding: 12px 0; border-top: 1px solid var(--rule); scroll-margin-top: 60px; }
+.note .src li { padding: 12px 0; border-top: 1px solid var(--rule); }
 .note .src .o { font: 600 11.5px/1.3 var(--sans); color: var(--grey); }
 .note .src .tt { margin-top: 5px; font-size: 16px; line-height: 1.3; }
 .note .src .tt a { text-decoration: none; }
+/* A finger needs 44 px; the title is the whole row's link (it was 37 px tall). */
+@media (pointer: coarse) { .note .src .tt a { display: block; min-height: 44px; } }
 .note .src li.is-read .tt a { color: var(--grey); }
 
 .note .end { margin: 18px var(--gutter) 0; padding: 14px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
@@ -456,6 +464,8 @@ details[open] summary::after { rotate: 225deg; translate: 0 2px; }
 .next .l { font: 700 11.5px/1.3 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
 .next .h { font-size: 21px; font-weight: 700; line-height: 1.15; }
 .next .hint { font: 400 11.5px/1.3 var(--sans); color: var(--grey); }
+/* «Tócala o desliza»: a mouse doesn't touch nor swipe (TalkBack doesn't hear it: aria-hidden). */
+@media not (pointer: coarse) { .next .swipe { display: none; } }
 p.next a { font: 600 13px/1 var(--sans); }
 .end .prev { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: 10px; font: 600 13px/1 var(--sans); text-decoration: none; }
 
